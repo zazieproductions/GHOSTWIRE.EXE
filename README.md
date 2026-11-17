@@ -71,6 +71,8 @@ GHOSTWIRE.EXE explores the environmental, behavioral, and hardware metadata that
 
 > [!NOTE]
 > Screenshots were captured from the production build (`npm run build && npm run preview`) in headless Chromium. The input is deterministic rather than a live room: most views run the synthetic testbench, and the microphone window in Experiment A is fed by Chromium's file-backed fake capture device (broadband noise), which is why that screenshot shows `MIC ACTIVE`. The numbers demonstrate the analysis path; they are not calibrated measurements of any environment.
+>
+> They are reproducible: `npm run screenshots` rebuilds the bundle, serves it with `vite preview`, and drives headless Chromium (Playwright, new headless mode) through the same flows, generating Experiment A's microphone input deterministically with `scripts/generate-fake-mic-noise.mjs` via `--use-file-for-fake-audio-capture`. Requires `npx playwright install chromium`; see [`docs/screenshots/README.md`](./docs/screenshots/README.md). Exact pixels vary with platform font rendering, but the UI state and analysis path are deterministic.
 
 ## Quick start
 
@@ -221,9 +223,10 @@ npm run build             # Complexity guard + TypeScript build + Vite bundle
 npm run preview           # Serve dist/ (0.0.0.0:4173)
 npx playwright install chromium
 npm run test:e2e           # Playwright against the production preview
+npm run screenshots        # Rebuild + recapture docs/screenshots/ in headless Chromium
 ```
 
-Build before running E2E: Playwright starts `npm run preview` and uses Chromium with fake microphone device and permission flags. Browser installation requires access to Playwright's browser download servers. Production assets are emitted to `dist/`; Vite uses a relative base path for static hosting. HTTPS is required for microphone capture outside localhost.
+Build before running E2E: Playwright starts `npm run preview` and uses Chromium with fake microphone device and permission flags. Browser installation requires access to Playwright's browser download servers. Screenshot capture (`npm run screenshots`) manages its own preview server and additionally feeds Experiment A's microphone window from a deterministic noise file; use `npm run screenshots:capture` to recapture against an existing `dist/` without rebuilding. Production assets are emitted to `dist/`; Vite uses a relative base path for static hosting. HTTPS is required for microphone capture outside localhost.
 
 ### Code map
 
@@ -241,7 +244,7 @@ src/
 ├── types/acoustic.ts        # Shared signal and session types
 ├── utils/exportSession.ts   # CSV, JSON and HTML exports
 └── __tests__/               # App integration tests
-scripts/                     # Deployment complexity guard
+scripts/                     # Complexity guard, screenshot capture and fake-mic noise generation
 e2e/                         # Playwright browser tests
 docs/screenshots/            # README screenshots captured from the production build
 ```
