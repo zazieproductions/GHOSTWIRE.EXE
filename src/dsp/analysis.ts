@@ -77,13 +77,17 @@ export function buildEnvironmentalFingerprint(
     sumMid += f.bandEnergy.midRatio;
     sumHigh += f.bandEnergy.highRatio;
 
-    // Accumulate power into 32 log bands
+    // Accumulate power into 32 log bands.
+    // Bands are non-overlapping: each bin contributes to exactly one band.
+    // The boundary bin (the one containing highHz) is assigned to band b, and
+    // band b+1 starts at the next bin so there is no double-counting.
     for (let b = 0; b < LOG_BAND_COUNT; b++) {
       const { lowHz, highHz } = bandEdges[b];
       const startBin = Math.max(1, Math.floor(lowHz / binWidth));
+      // endBin is inclusive; assign the boundary bin to this band only.
       const endBin = Math.min(
         f.powerSpectrum.length - 1,
-        Math.max(startBin, Math.ceil(highHz / binWidth))
+        Math.max(startBin, Math.floor(highHz / binWidth))
       );
       let bandSum = 0;
       for (let k = startBin; k <= endBin; k++) {
@@ -355,6 +359,11 @@ function summarizeActivityFrames(
   };
 }
 
+interface TimedSegment {
+  start: number;
+  end: number;
+}
+
 function findBestEnvelopeLag(
   centered: number[],
   n: number,
@@ -385,36 +394,108 @@ function findBestEnvelopeLag(
   return { bestLag, bestCorr };
 }
 
+function medianFrameIntervalMs(
+  timestamps: number[],
+  windowDurationSec: number
+): number {
+  const diffs: number[] = [];
+  for (let i = 1; i < timestamps.length; i++) {
+    diffs.push(timestamps[i] - timestamps[i - 1]);
+  }
+  diffs.sort((a, b) => a - b);
+  if (diffs.length === 0) {
+    return (windowDurationSec * 1000) / Math.max(1, timestamps.length - 1);
+  }
+  return diffs[Math.floor(diffs.length / 2)];
+}
+
+function findContinuousTimedSegments(
+  timestamps: number[],
+  gapThresholdMs: number
+): TimedSegment[] {
+  const segments: TimedSegment[] = [];
+  let segStart = 0;
+  for (let i = 1; i < timestamps.length; i++) {
+    const isGap = timestamps[i] - timestamps[i - 1] > gapThresholdMs;
+    if (isGap) {
+      if (i - segStart >= 24) segments.push({ start: segStart, end: i });
+      segStart = i;
+    }
+  }
+  if (timestamps.length - segStart >= 24) {
+    segments.push({ start: segStart, end: timestamps.length });
+  }
+  return segments;
+}
+
+function longestSegment(segments: TimedSegment[]): TimedSegment | null {
+  let best: TimedSegment | null = null;
+  for (const segment of segments) {
+    const isLonger =
+      !best || segment.end - segment.start > best.end - best.start;
+    if (isLonger) best = segment;
+  }
+  return best;
+}
+
+function summarizeEnvelopeSegment(
+  frames: DspFrame[],
+  timestamps: number[],
+  segment: TimedSegment
+): PeriodicityResult {
+  const { start, end } = segment;
+  const segN = end - start;
+  const segDurSec = (timestamps[end - 1] - timestamps[start]) / 1000;
+  if (segN < 2 || !Number.isFinite(segDurSec) || segDurSec <= 0) {
+    return { detectedPeriodHz: null, periodicityStrength: 0 };
+  }
+
+  const dt = segDurSec / (segN - 1);
+  const rmsArr = frames.slice(start, end).map((f) => f.rms);
+  const meanRms = rmsArr.reduce((a, b) => a + b, 0) / segN;
+  const centered = rmsArr.map((v) => v - meanRms);
+  let zeroLag = 0;
+  for (let i = 0; i < segN; i++) zeroLag += centered[i] * centered[i];
+
+  const rmsStd = Math.sqrt(zeroLag / segN);
+  // Require meaningful amplitude modulation above the noise floor.
+  if (zeroLag > 1e-10 && rmsStd > meanRms * 0.12) {
+    const { bestLag, bestCorr } = findBestEnvelopeLag(centered, segN, dt);
+    const periodicityStrength = Math.max(0, bestCorr);
+    const detectedPeriodHz =
+      bestLag > 0 && bestCorr >= 0.42 ? 1 / (bestLag * dt) : null;
+    return { detectedPeriodHz, periodicityStrength };
+  }
+  return { detectedPeriodHz: null, periodicityStrength: 0 };
+}
+
+/**
+ * Envelope periodicity via normalized autocorrelation on the linear RMS envelope.
+ *
+ * AUDIT F6: use per-frame timestamps instead of assuming evenly spaced display
+ * frames. Gaps larger than three times the median inter-frame interval split the
+ * envelope; only the longest continuous segment is analyzed, and unsupported
+ * cadence estimates are suppressed.
+ */
 function detectEnvelopePeriodicity(
   frames: DspFrame[],
   windowDurationSec: number
 ): PeriodicityResult {
-  const result: PeriodicityResult = {
+  const noPeriodicity: PeriodicityResult = {
     detectedPeriodHz: null,
     periodicityStrength: 0,
   };
   const n = frames.length;
+  if (n < 24 || windowDurationSec < 0.8) return noPeriodicity;
 
-  if (n >= 24 && windowDurationSec >= 0.8) {
-    const dt = windowDurationSec / (n - 1);
-    const rmsArr = frames.map((f) => f.rms);
-    const meanRms = rmsArr.reduce((a, b) => a + b, 0) / n;
-    const centered = rmsArr.map((v) => v - meanRms);
-    let zeroLag = 0;
-    for (let i = 0; i < n; i++) zeroLag += centered[i] * centered[i];
+  const timestamps = frames.map((f) => f.timestampMs);
+  const medianDtMs = medianFrameIntervalMs(timestamps, windowDurationSec);
+  const gapThresholdMs = Math.max(medianDtMs * 3, 50);
+  const segments = findContinuousTimedSegments(timestamps, gapThresholdMs);
+  const bestSegment = longestSegment(segments);
+  if (!bestSegment) return noPeriodicity;
 
-    const rmsStd = Math.sqrt(zeroLag / n);
-    // Require meaningful amplitude modulation above noise floor
-    if (zeroLag > 1e-10 && rmsStd > meanRms * 0.12) {
-      const { bestLag, bestCorr } = findBestEnvelopeLag(centered, n, dt);
-      result.periodicityStrength = Math.max(0, bestCorr);
-      if (bestLag > 0 && bestCorr >= 0.42) {
-        result.detectedPeriodHz = 1 / (bestLag * dt);
-      }
-    }
-  }
-
-  return result;
+  return summarizeEnvelopeSegment(frames, timestamps, bestSegment);
 }
 
 function computeActivityFlags(

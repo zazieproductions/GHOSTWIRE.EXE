@@ -144,11 +144,22 @@ export function buildMeasurementSession(params: {
   };
 }
 
+/**
+ * CSV-safe quoting: wraps a field in double quotes if it contains a comma, double
+ * quote, or line break, and doubles any embedded double quotes per RFC 4180.
+ */
+function csvField(value: string): string {
+  if (/[\n\r,"]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
 export function exportSessionToCsv(session: MeasurementSession): string {
   const headerLines = [
     `# GHOSTWIRE.EXE Acoustic Feature Session Export`,
     `# ${SESSION_PRIVACY_NOTICE}`,
-    `# Session: ${session.name} (${session.id})`,
+    `# Session: ${csvField(session.name)} (${session.id})`,
     `# Source: ${session.sourceMode} | Sample Rate: ${session.sampleRate} Hz | FFT Size: ${session.fftSize}`,
     `# Started: ${session.startedAtIso} | Duration: ${session.durationSec.toFixed(2)} s | Samples: ${session.summary.sampleCount}`,
     `# Note: dBFS is digital full-scale relative amplitude, NOT calibrated physical dB SPL.`,

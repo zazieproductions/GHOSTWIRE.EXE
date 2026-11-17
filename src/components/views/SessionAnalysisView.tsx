@@ -85,13 +85,31 @@ function useSessionComparison(
   );
 
   useEffect(() => {
+    let active = true;
     const sessA = savedSessions.find((s) => s.id === selectedIdA);
     const sessB = savedSessions.find((s) => s.id === selectedIdB);
+    setComparison(null);
     if (!sessA || !sessB) {
-      setComparison(null);
-      return;
+      return () => {
+        active = false;
+      };
     }
-    void dspWorkerClient.compareSessions(sessA, sessB).then(setComparison);
+    void dspWorkerClient
+      .compareSessions(sessA, sessB)
+      .then((result) => {
+        if (active) setComparison(result);
+      })
+      .catch((err) => {
+        if (!active) return;
+        // Surface worker / session comparison failures without leaving a
+        // stale result visible (AUDIT F9).
+        console.error('[SessionAnalysisView] session comparison failed:', err);
+        setComparison(null);
+      });
+    return () => {
+      // A newer selection invalidates an in-flight comparison response.
+      active = false;
+    };
   }, [savedSessions, selectedIdA, selectedIdB]);
 
   return comparison;

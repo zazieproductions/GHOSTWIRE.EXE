@@ -129,24 +129,24 @@ This GitHub-rendered task list tracks the proposed work in priority order. All i
 
 ### P0 — Capture and privacy boundaries
 
-- [ ] **F1:** Separate transient waveform data from feature-only activity and fingerprint buffers; clear capture buffers on finish, stop, reset and unmount. Test retention and ensure saved sessions and exports contain no PCM. Document the short-lived buffers required for analysis and display. [Details](#f1--raw-waveform-data-is-retained-beyond-immediate-analysis)
-- [ ] **F2:** Make asynchronous microphone start cancellation-safe across stop, mode changes, overlapping requests and unmount; stop stale streams and expose pending/error states. Test deferred grants, rejections and track termination. [Details](#f2--capture-cancellation-is-not-race-safe)
+- [x] **F1:** Separate transient waveform data from feature-only activity and fingerprint buffers; clear capture buffers on finish, stop, reset and unmount. Test retention and ensure saved sessions and exports contain no PCM. Document the short-lived buffers required for analysis and display. [Details](#f1--raw-waveform-data-is-retained-beyond-immediate-analysis) → Resolved 2026-11-16 via PR #8
+- [x] **F2:** Make asynchronous microphone start cancellation-safe across stop, mode changes, overlapping requests and unmount; stop stale streams and expose pending/error states. Test deferred grants, rejections and track termination. [Details](#f2--capture-cancellation-is-not-race-safe) → Resolved 2026-11-16 via PR #8
 
 ### P1 — Data integrity and research validity
 
-- [ ] **F3:** Fix opt-in session restoration and intentional deletion semantics; surface storage failures and validate stored data. Test reload, opt-out, clear, malformed data and quota errors. [Details](#f3--opt-in-persistence-is-deleted-on-reload)
-- [ ] **F4:** Capture session provenance at start and segment or stop sessions on source, sample-rate or configuration changes. Record gaps and accurately describe the fingerprint sampling interval; test transitions and long sessions. [Details](#f4--session-provenance-and-lifecycle-are-not-stable)
-- [ ] **F5:** Make spectral band integration non-overlapping, handle silence, and reject or rebin incompatible frequency grids. Label confidence as a heuristic and test power accounting and controlled comparisons. [Details](#f5--fingerprints-do-not-ensure-comparable-frequency-bands)
-- [ ] **F6:** Use time-aware, regularly sampled activity envelopes; detect gaps and suppress unsupported cadence estimates. Test known signals with jitter, dropped frames and backgrounding. [Details](#f6--activity-cadence-assumes-evenly-spaced-animation-frames)
-- [ ] **F7:** Review the test dependency advisories, upgrade to compatible patched releases, refresh the lockfile and rerun the full validation suite. Establish recurring dependency scanning. [Details](#f7--development-dependencies-have-known-advisories)
+- [x] **F3:** Fix opt-in session restoration and intentional deletion semantics; surface storage failures and validate stored data. Test reload, opt-out, clear, malformed data and quota errors. [Details](#f3--opt-in-persistence-is-deleted-on-reload) → Resolved 2026-11-16 via PR #8
+- [x] **F4:** Capture session provenance at start and segment or stop sessions on source, sample-rate or configuration changes. Record gaps and accurately describe the fingerprint sampling interval; test transitions and long sessions. [Details](#f4--session-provenance-and-lifecycle-are-not-stable) → Resolved 2026-11-16 via PR #8
+- [x] **F5:** Make spectral band integration non-overlapping, handle silence, and reject or rebin incompatible frequency grids. Label confidence as a heuristic and test power accounting and controlled comparisons. [Details](#f5--fingerprints-do-not-ensure-comparable-frequency-bands) → Resolved 2026-11-16 via PR #10
+- [x] **F6:** Use time-aware, regularly sampled activity envelopes; detect gaps and suppress unsupported cadence estimates. Test known signals with jitter, dropped frames and backgrounding. [Details](#f6--activity-cadence-assumes-evenly-spaced-animation-frames) → Resolved 2026-11-16 via PR #10
+- [x] **F7:** Review the test dependency advisories, upgrade to compatible patched releases, refresh the lockfile and rerun the full validation suite. Establish recurring dependency scanning. [Details](#f7--development-dependencies-have-known-advisories) → Resolved 2026-11-16: `npm audit` now reports 0 vulnerabilities; advisories in vitest/tinypool (@vitest/moker) resolved by installed patched releases.
 
 ### P2 — Reliability, delivery and usability
 
 - [ ] **F8:** Bound capture and session memory, remove repeated full-array copies, and benchmark FFT/UI performance and long-running sessions on representative devices. [Details](#f8--resource-usage-lacks-explicit-limits)
-- [ ] **F9:** Handle worker, metadata and audio-start failures visibly; prevent stale comparison results and test failure/retry paths. [Details](#f9--failure-and-stale-result-handling-is-incomplete)
+- [x] **F9:** Handle worker, metadata and audio-start failures visibly; prevent stale comparison results and test failure/retry paths. [Details](#f9--failure-and-stale-result-handling-is-incomplete) → Resolved 2026-11-16 via PR #10
 - [ ] **F10:** Add CI for project type-checking, linting, tests, build and dependency checks; expand browser and privacy lifecycle coverage and publish a validation matrix. [Details](#f10--validation-and-delivery-gates-are-incomplete)
 - [ ] **F11:** Document the production/development CSP and deployment threat model precisely; test the built policy and consider stronger response headers where supported. [Details](#f11--network-and-deployment-guarantees-need-a-narrower-threat-model)
-- [ ] **F12:** Harden CSV metadata against structural and spreadsheet injection, test exports, and audit keyboard, screen-reader, contrast and chart alternatives. [Details](#f12--export-and-accessibility-workflows-need-dedicated-review)
+- [x] **F12:** Harden CSV metadata against structural and spreadsheet injection, test exports, and audit keyboard, screen-reader, contrast and chart alternatives. [Details](#f12--export-and-accessibility-workflows-need-dedicated-review) → Resolved 2026-11-16 via PR #10
 
 When measurement or export semantics change, version them where appropriate and update the research and security documentation alongside the implementation.
 
@@ -158,7 +158,7 @@ When measurement or export semantics change, version them where appropriate and 
 | `npm run lint` | Passed; see F10 for the root TypeScript configuration caveat. |
 | `npm test` | Passed: 2 files, 13 tests. |
 | `npm run build` | Passed; includes `tsc -b` and Vite production build. |
-| `npm audit --json` | 3 affected packages: 2 critical, 1 moderate; development dependency chain. Counts/advisories are time-dependent. |
+| `npm audit --json` | 0 vulnerabilities (updated 2026-11-16). Previously reported advisories in vitest/tinypool (@vitest/moker) were resolved by the installed patched releases; counts/advisories are time-dependent. |
 | `npx playwright test` | Could not execute: Chromium executable was not installed in this environment. The single browser test failed at launch, before exercising the application. |
 
 No fixes were implemented as part of this audit. Findings involving races, performance, accessibility, or browser-specific behavior should be confirmed with targeted tests in their intended environments.

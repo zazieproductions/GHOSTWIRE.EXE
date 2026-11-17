@@ -26,9 +26,12 @@ No tagged releases yet. Everything currently on `main` is unreleased.
   now below their thresholds.
 - Extracted application state, engine lifecycle, capture controls, session recording
   and workspace routing into `src/app/`.
-- Resolved `main` merge conflicts by carrying the upstream waveform-stripping
-  behavior into the new audio hook and wiring the capture-cancellation token into
-  microphone and synthetic start/stop paths.
+- Resolved the first `main` merge by carrying the upstream waveform-stripping fix
+  into the new audio hook and wiring the capture-cancellation token into microphone
+  and synthetic start/stop paths.
+- Resolved the second `main` merge by porting the upstream non-overlapping spectral
+  bands, time-aware cadence segmentation, worker-error/stale-result handling, and
+  CSV metadata quoting into the refactored modules.
 
 ### Fixed
 

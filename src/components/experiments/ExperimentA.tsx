@@ -216,7 +216,11 @@ function useWindowCapture(
       captureFramesRef.current = [];
       setCaptureBufferCount(0);
       setCapturingSlot(slot);
+      // Clear the comparison and the window being replaced so a failed or
+      // in-flight worker request cannot leave a stale result visible (AUDIT F9).
       onCaptureStart();
+      if (slot === 'A') setFpA(null);
+      else setFpB(null);
     },
     [mode, onCaptureStart]
   );
@@ -244,14 +248,24 @@ function useFingerprintComparison(
   setComparison: ComparisonSetter,
   setComparing: ComparingSetter
 ): void {
+  const requestIdRef = useRef(0);
   const runComparison = useCallback(async () => {
     if (!fpA || !fpB) return;
+    const requestId = ++requestIdRef.current;
+    setComparison(null);
     setComparing(true);
     try {
       const res = await dspWorkerClient.compareFingerprints(fpA, fpB);
+      if (requestId !== requestIdRef.current) return;
       setComparison(res);
+    } catch (err) {
+      if (requestId !== requestIdRef.current) return;
+      // Surface worker / fingerprint comparison failures without leaving a
+      // stale result visible (AUDIT F9).
+      console.error('[ExperimentA] fingerprint comparison failed:', err);
+      setComparison(null);
     } finally {
-      setComparing(false);
+      if (requestId === requestIdRef.current) setComparing(false);
     }
   }, [fpA, fpB, setComparison, setComparing]);
 
@@ -259,6 +273,10 @@ function useFingerprintComparison(
     if (fpA && fpB) {
       void runComparison();
     }
+    return () => {
+      // A newer capture invalidates any in-flight comparison response.
+      requestIdRef.current += 1;
+    };
   }, [fpA, fpB, runComparison]);
 }
 
@@ -478,7 +496,10 @@ function ComparisonResults({
 export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
   const [comparison, setComparison] = useState<FingerprintComparison | null>(null);
   const [comparing, setComparing] = useState(false);
-  const clearComparison = useCallback(() => setComparison(null), []);
+  const clearComparison = useCallback(() => {
+    setComparison(null);
+    setComparing(false);
+  }, []);
   const capture = useWindowCapture(mode, latestFrame, clearComparison);
 
   useFingerprintComparison(
