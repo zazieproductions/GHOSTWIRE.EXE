@@ -2,7 +2,7 @@ name: Merge Version
 
 # On every pushed semver tag, creates the GitHub release from that tag and merges
 # it into the floating major (`v1`) and minor (`v1.0`) branches, creating those
-# branches on the first release.
+# branches on the first release. Stable tags then request a changelog update.
 #
 # https://github.com/marketplace/actions/merge-version
 #
@@ -10,8 +10,9 @@ name: Merge Version
 #   1. Tag a commit and push it:  git tag v1.2.0 && git push origin v1.2.0
 #   2. This workflow creates release `v1.2.0` with generated release notes.
 #   3. Branches `v1` and `v1.2` are created or advanced to the tagged commit.
-#   4. CHANGELOG.md is updated by the `Update Changelog` workflow — but only if a
-#      `RELEASE_TOKEN` secret is set (see the token comment below).
+#   4. For stable tags, `Update Changelog` is dispatched to record the release in
+#      CHANGELOG.md. (Prerelease tags such as `v1.2.0-rc.1` are marked as
+#      prereleases and deliberately left out of the changelog.)
 
 on:
   push:
@@ -20,10 +21,11 @@ on:
       # the run on anything it cannot parse, including short tags like `v1.2`.
       - 'v[0-9]+.[0-9]+.[0-9]+*'
 
-# The action creates a release and branches, and merges into them, all through
-# the GitHub API. It needs no checkout and no other scopes.
+# `contents: write` covers the release, the version branches and the merges;
+# `actions: write` is needed to dispatch the changelog workflow.
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: merge-version-${{ github.ref }}
@@ -40,23 +42,46 @@ jobs:
       # `v1` ref is a mutable branch), so `@v1` would not be immutable. Bump
       # deliberately.
       #
-      # Upstream declares the retired `node16` runtime; GitHub runs such actions on
-      # a newer Node with a deprecation warning, so expect that annotation in the
-      # run log. It does not affect the result.
+      # Upstream declares the retired `node16` runtime. The runner still accepts
+      # that value and maps node12/node16 to node20, which in turn runs on Node 24,
+      # so the action executes — expect a deprecation annotation in the run log.
       #
-      # Inputs intentionally left at their defaults:
+      # Inputs are spelled out rather than inherited, so an upstream default change
+      # cannot silently alter what a release does:
       #   release: 'true'  → create the release from the tag
       #   minor:   'true'  → also maintain the `v1.2` branch
-      # `pre` is not passed: upstream's action.yml declares `pre`, but the code
-      # reads `pre-release`, so the input has no effect. Prerelease tags (e.g.
-      # `v1.2.0-rc.1`) therefore create a release but do not move the version
-      # branches. Pin this if you need prerelease branch tracking.
+      # `pre` is intentionally not passed: upstream's action.yml declares `pre` but
+      # its code reads `pre-release`, so the input is inert. Skipping branches for
+      # prerelease tags is already the default, which is the behaviour we want;
+      # step 2 handles the part the action gets wrong (see below).
       - name: Create release and merge version branches
         uses: caijinglong/action-version-merge@v1.0.7
         with:
-          # Events raised with the default GITHUB_TOKEN do not start new workflow
-          # runs, so the release created here would not trigger `Update Changelog`
-          # on its own. Set a `RELEASE_TOKEN` secret (a PAT or GitHub App token
-          # with `contents: write`) to keep the chain working; without it the
-          # release and version branches are still created.
-          github-token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          release: 'true'
+          minor: 'true'
+
+      # The action creates every release unflagged, so a `-rc.1` tag would otherwise
+      # publish as a full release and claim the "latest" slot.
+      - name: Flag prerelease tags as prereleases
+        if: contains(github.ref_name, '-')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --prerelease
+
+      # Releases created with the default GITHUB_TOKEN do not raise a `release`
+      # event that can start workflows, so the changelog update is requested
+      # explicitly. `workflow_dispatch` is exempt from that restriction, which keeps
+      # this chain working without a personal access token.
+      #
+      # Non-fatal: the release and version branches are the primary result, and a
+      # dispatch cannot run until this workflow exists on the default branch.
+      - name: Request changelog update
+        if: ${{ !contains(github.ref_name, '-') }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: gh workflow run update-changelog.yml --ref "$DEFAULT_BRANCH" -f "tag=$TAG"

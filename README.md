@@ -215,10 +215,10 @@ Four GitHub Actions run alongside the commands above:
 |:--|:--|:--|
 | [`Slop Scan`](./.github/workflows/slop-scan.yml) | push to `main`, pull requests | Verifies that every npm package named in code and documentation exists on the registry, catching slopsquatting targets. |
 | [`Roast My Codebase`](./.github/workflows/roast.yml) | pull requests | Posts an advisory code-health comment (complexity, dead exports, tracked secrets, missing tests). It does not gate merges. |
-| [`Merge Version`](./.github/workflows/merge-version.yml) | pushed semver tags | Creates the release for the tag and advances the floating `v1` and `v1.0` branches, creating them on first release. |
-| [`Update Changelog`](./.github/workflows/update-changelog.yml) | published releases | Prepends release notes to [`CHANGELOG.md`](./CHANGELOG.md) and advances the `Unreleased` compare link. |
+| [`Merge Version`](./.github/workflows/merge-version.yml) | pushed semver tags | Creates the release for the tag, advances the floating `v1` and `v1.0` branches (creating them on first release), flags prerelease tags, and requests the changelog update. |
+| [`Update Changelog`](./.github/workflows/update-changelog.yml) | published releases, `Merge Version` dispatch | Prepends release notes to [`CHANGELOG.md`](./CHANGELOG.md) and advances the `Unreleased` compare link. |
 
-Only the release workflows request write access (`contents: write`); the scanning workflows run with a read-only token. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`. `npm run build` additionally fails on any function at or above the Roast critical complexity threshold (25), so critical complexity findings cannot reach a production bundle.
+Only the release workflows request write access — `contents: write`, plus `actions: write` on `Merge Version` so it can dispatch the changelog update; the scanning workflows run with a read-only token. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`. `npm run build` additionally fails on any function at or above the Roast critical complexity threshold (25), so critical complexity findings cannot reach a production bundle.
 
 ### Releasing
 
@@ -229,7 +229,9 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-The tag must be full semver (`vMAJOR.MINOR.PATCH`, optionally with a prerelease suffix); `v1.0` and other short tags do not trigger the workflow. Prerelease tags such as `v1.1.0-rc.1` get a release but leave the `v1` and `v1.1` branches untouched. Because events raised with the default `GITHUB_TOKEN` cannot start new workflow runs, the automated changelog update only follows a generated release when a `RELEASE_TOKEN` secret (a PAT or GitHub App token with `contents: write`) is configured.
+The tag must be full semver (`vMAJOR.MINOR.PATCH`, optionally with a prerelease suffix); `v1.0` and other short tags do not trigger the workflow. Prerelease tags such as `v1.1.0-rc.1` are published and flagged as prereleases, but leave the `v1` and `v1.1` branches untouched and are kept out of `CHANGELOG.md`.
+
+Releases created by the workflow are not followed by a changelog update automatically, because events raised with the default `GITHUB_TOKEN` cannot start new workflow runs. The workflow therefore dispatches `Update Changelog` itself — `workflow_dispatch` is the one exception to that restriction — so no personal access token or extra secret is needed. A release you publish by hand in the GitHub UI also updates the changelog on its own.
 
 ## License
 

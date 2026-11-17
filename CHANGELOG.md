@@ -23,9 +23,10 @@ No tagged releases yet. Everything currently on `main` is unreleased.
   `main` and every pull request.
 - Build-time complexity guard (`npm run check:complexity`) plus deterministic DSP
   regression fixtures for activity inference and privacy-leakage heuristics.
-- Tag-driven releases: pushing a semver tag creates the GitHub release, advances the
-  floating `v1` and `v1.0` branches, and requests the changelog update, via
-  [`Merge Version`](./.github/workflows/merge-version.yml).
+- Tag-driven releases via [`Merge Version`](./.github/workflows/merge-version.yml):
+  pushing a semver tag creates the GitHub release and advances the floating `v1` and
+  `v1.0` branches. Prerelease tags are flagged as prereleases, and stable tags
+  dispatch `Update Changelog`, so the changelog follows without any extra secret.
 
 ### Changed
 

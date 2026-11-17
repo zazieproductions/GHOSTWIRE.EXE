@@ -1,13 +1,30 @@
 name: Update Changelog
 
-# On every published release, prepends the release notes to CHANGELOG.md and
-# advances the "Unreleased" compare link, then commits the result back.
+# Prepends the release notes to CHANGELOG.md and advances the "Unreleased" compare
+# link, then commits the result back.
+#
+# Runs on every published release, and can also be dispatched directly. The direct
+# path exists because the `Merge Version` workflow generates releases with the
+# default GITHUB_TOKEN, and events raised by GITHUB_TOKEN cannot start new workflow
+# runs. `workflow_dispatch` is the documented exception to that rule, so the release
+# workflow chains this one explicitly and no personal access token is required.
 #
 # https://github.com/marketplace/actions/changelog-updater
 
 on:
   release:
     types: [released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to record (e.g. v1.0.0)'
+        required: true
+        type: string
+      branch:
+        description: 'Branch to commit CHANGELOG.md to'
+        required: false
+        default: main
+        type: string
 
 permissions:
   contents: write
@@ -23,31 +40,110 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # Resolve tag, target branch and release notes before checking anything out,
+      # so one code path serves both a release event and a workflow dispatch.
+      - name: Resolve release metadata
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          EVENT_BRANCH: ${{ github.event.release.target_commitish }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          tag="${INPUT_TAG:-$EVENT_TAG}"
+          branch="${INPUT_BRANCH:-$EVENT_BRANCH}"
+          if [ -z "$tag" ]; then
+            echo "::error::No tag supplied and no release event payload found."
+            exit 1
+          fi
+
+          # target_commitish may be a branch, a tag or a raw SHA; committing back
+          # needs a real branch, so fall back to the default branch otherwise.
+          # The name is URL-encoded (branch names may contain `/`) and the lookup
+          # result is compared exactly, since a prefix match is not good enough.
+          branch_ok=false
+          if [ -n "$branch" ]; then
+            encoded="$(jq -rn --arg v "$branch" '$v|@uri')"
+            if [ "$(gh api "repos/${GITHUB_REPOSITORY}/branches/${encoded}" \
+                    --jq '.name' 2>/dev/null || true)" = "$branch" ]; then
+              branch_ok=true
+            fi
+          fi
+          if [ "$branch_ok" != true ]; then
+            branch="$DEFAULT_BRANCH"
+          fi
+          if [ -z "$branch" ]; then
+            echo "::error::Could not resolve a branch to commit to."
+            exit 1
+          fi
+
+          # Release date from the tagged commit, so annotated and lightweight tags
+          # agree. Sliced from the ISO timestamp to keep it date-only.
+          if ! date="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${tag}" \
+                       --jq '.commit.committer.date[0:10]' 2>/dev/null)"; then
+            echo "::error::Cannot resolve a commit for tag '${tag}'."
+            exit 1
+          fi
+
+          # The action aborts on empty notes, so fall back to a minimal line for
+          # releases published without a body. `gh api` prints error payloads on
+          # stdout, so the body is only read when the request actually succeeded.
+          # Multiline-safe via a delimiter.
+          notes="Release ${tag}"
+          if release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" 2>/dev/null)"; then
+            body="$(printf '%s' "$release_json" | jq -r '.body // ""')"
+            if [ -n "$body" ]; then
+              notes="$body"
+            fi
+          fi
+
+          {
+            echo "tag=${tag}"
+            echo "branch=${branch}"
+            echo "date=${date}"
+            echo "notes<<CHANGELOG_NOTES_EOF"
+            printf '%s\n' "$notes"
+            echo "CHANGELOG_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Checkout release target branch
         uses: actions/checkout@v4
         with:
-          # Full history so the release date can be read from the tag commit.
+          # Full history so the changelog being edited is not stale.
           fetch-depth: 0
-          # Ensures the changelog being edited is not stale.
-          ref: ${{ github.event.release.target_commitish }}
+          ref: ${{ steps.release.outputs.branch }}
 
-      - name: Extract release date from git tag
-        id: release_date
+      # Keeps a re-run, or a repeated dispatch for the same tag, from appending the
+      # release a second time.
+      - name: Check whether this release is already recorded
+        id: recorded
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
-          echo "date=$(git log -1 --date=short --format=%ad '${{ github.event.release.tag_name }}')" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if grep -qF "## [${TAG}]" CHANGELOG.md; then
+            echo "::notice::${TAG} already has a CHANGELOG section; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Update CHANGELOG.md
+        if: steps.recorded.outputs.skip != 'true'
         uses: stefanzweifel/changelog-updater-action@v1
         with:
-          release-date: ${{ steps.release_date.outputs.date }}
-          # The action aborts when release notes are empty, so fall back to a
-          # minimal note for releases published without a body.
-          release-notes: ${{ github.event.release.body || format('Release {0}', github.event.release.tag_name) }}
-          latest-version: ${{ github.event.release.tag_name }}
+          release-date: ${{ steps.release.outputs.date }}
+          release-notes: ${{ steps.release.outputs.notes }}
+          latest-version: ${{ steps.release.outputs.tag }}
 
       - name: Commit updated CHANGELOG
+        if: steps.recorded.outputs.skip != 'true'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          branch: ${{ github.event.release.target_commitish }}
-          commit_message: 'docs(changelog): update for ${{ github.event.release.tag_name }}'
+          branch: ${{ steps.release.outputs.branch }}
+          commit_message: 'docs(changelog): update for ${{ steps.release.outputs.tag }}'
           file_pattern: CHANGELOG.md
