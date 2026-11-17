@@ -8,7 +8,7 @@
 
 `REACT 19` · `TYPESCRIPT` · `WEB AUDIO` · `WEB WORKERS` · `VITE`
 
-[Quick start](#quick-start) · [Architecture](#architecture) · [DSP reference](#dsp-reference) · [Experiments](#experiment-index) · [Development](#development) · [Privacy](#privacy--trust-boundaries)
+[Screenshots](#screenshots) · [Quick start](#quick-start) · [Architecture](#architecture) · [DSP reference](#dsp-reference) · [Experiments](#experiment-index) · [Development](#development) · [Privacy](#privacy--trust-boundaries)
 
 </div>
 
@@ -27,6 +27,50 @@ GHOSTWIRE.EXE explores the environmental, behavioral, and hardware metadata that
 | **Exposure lab** | Five controlled side-channel experiments | Comparisons, heuristics and documented limitations |
 | **Synthetic signals** | Locally generated test inputs and numerical checks | Repeatable inputs without microphone permission |
 | **Session analysis** | Start, pause, stop, compare and export | Timestamped numerical aggregates; CSV, JSON or HTML |
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/screenshots/live-monitor.png" alt="Live monitor with oscilloscope, FFT spectrum, scrolling spectrogram and signal metric tiles while a synthetic 60 Hz mains hum runs" />
+      <br />
+      <sub><strong>Live monitor.</strong> Oscilloscope, Hann-windowed spectrum, scrolling spectrogram and per-frame metrics for the synthetic 60&nbsp;Hz mains-hum preset.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/screenshots/synthetic-signals.png" alt="Synthetic signals view with research presets, waveform parameters and DSP numerical self-verification results" />
+      <br />
+      <sub><strong>Synthetic signals.</strong> Research presets, waveform parameters and the DSP self-check, which verifies the 60&nbsp;Hz peak and low-band concentration of a deterministic frame.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/screenshots/experiment-a.png" alt="Experiment A comparing two 32-band spectral fingerprints with similarity, RMSE, noise floor and band shift metrics" />
+      <br />
+      <sub><strong>Experiment A.</strong> Two ephemeral 32-band fingerprints, synthetic hum (green) versus broadband noise (amber), scored by cosine similarity, spectral RMSE and band shift.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/screenshots/experiment-b.png" alt="Experiment B classifying a 4 Hz impulse train as transient and repetitive, showing each heuristic rule, evidence and reasoning" />
+      <br />
+      <sub><strong>Experiment B.</strong> The 4&nbsp;Hz impulse preset classified as transient and repetitive (4.00&nbsp;Hz cadence, <code>r&nbsp;=&nbsp;1.00</code>), with the rule, evidence and reasoning for every heuristic.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/screenshots/experiment-e.png" alt="Experiment E showing the educational heuristic index, observable acoustic features, broad inferences and privacy mitigations" />
+      <br />
+      <sub><strong>Experiment E.</strong> The educational heuristic index, observable features and the broad inferences an observer could draw, next to what cannot be concluded.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/screenshots/session-analysis.png" alt="Session analysis with a feature timeline, two recorded sessions and a worker-computed comparison" />
+      <br />
+      <sub><strong>Session analysis.</strong> Feature timeline, two recorded sessions and the off-thread comparison of their aggregates. Exports are the only way data leaves the page.</sub>
+    </td>
+  </tr>
+</table>
+
+> [!NOTE]
+> Screenshots were captured from the production build (`npm run build && npm run preview`) in headless Chromium. The input is deterministic rather than a live room: most views run the synthetic testbench, and the microphone window in Experiment A is fed by Chromium's file-backed fake capture device (broadband noise), which is why that screenshot shows `MIC ACTIVE`. The numbers demonstrate the analysis path; they are not calibrated measurements of any environment.
 
 ## Quick start
 
@@ -199,6 +243,7 @@ src/
 └── __tests__/               # App integration tests
 scripts/                     # Deployment complexity guard
 e2e/                         # Playwright browser tests
+docs/screenshots/            # README screenshots captured from the production build
 ```
 
 When changing a metric, update its implementation in `src/dsp/`, its tests in `src/dsp/__tests__/`, and the units and limitations in [RESEARCH.md](./RESEARCH.md). When changing capture, persistence or export behavior, review [SECURITY.md](./SECURITY.md) and the relevant integration and browser tests. Worker comparison requests are defined in `src/workers/dsp.worker.ts`; if a worker cannot be created, the client uses synchronous comparison functions.
