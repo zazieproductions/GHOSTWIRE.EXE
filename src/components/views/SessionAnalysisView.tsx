@@ -23,6 +23,7 @@ interface SessionAnalysisViewProps {
   activeSamples: SessionSamplePoint[];
   savedSessions: MeasurementSession[];
   persistLocally: boolean;
+  sessionNotice: string | null;
   onChangeSessionName: (name: string) => void;
   onStartSession: () => void;
   onPauseToggle: () => void;
@@ -38,6 +39,7 @@ export function SessionAnalysisView({
   activeSamples,
   savedSessions,
   persistLocally,
+  sessionNotice,
   onChangeSessionName,
   onStartSession,
   onPauseToggle,
@@ -49,6 +51,7 @@ export function SessionAnalysisView({
   const [comparison, setComparison] = useState<SessionComparisonResult | null>(
     null
   );
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
   const timelineCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -65,9 +68,30 @@ export function SessionAnalysisView({
     const sessB = savedSessions.find((s) => s.id === selectedIdB);
     if (!sessA || !sessB) {
       setComparison(null);
+      setComparisonError(null);
       return;
     }
-    void dspWorkerClient.compareSessions(sessA, sessB).then(setComparison);
+
+    // Ignore results from a stale selection and surface worker failures instead
+    // of leaving an unhandled rejection.
+    let cancelled = false;
+    setComparisonError(null);
+    dspWorkerClient
+      .compareSessions(sessA, sessB)
+      .then((result) => {
+        if (!cancelled) setComparison(result);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setComparison(null);
+        setComparisonError(
+          err instanceof Error ? err.message : 'Session comparison failed.'
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [savedSessions, selectedIdA, selectedIdB]);
 
   // Draw timeline of active or selected session
@@ -202,6 +226,15 @@ export function SessionAnalysisView({
       <div className="border border-[#f59e0b]/40 bg-[#181207] text-[#fcd34d] px-3 py-2 text-[11px] rounded-sm">
         {SESSION_PRIVACY_NOTICE}
       </div>
+
+      {sessionNotice && (
+        <div
+          role="status"
+          className="border border-[#f59e0b]/50 bg-[#181207] text-[#fcd34d] px-3 py-2 text-[11px] rounded-sm flex items-start justify-between gap-3"
+        >
+          <span>{sessionNotice}</span>
+        </div>
+      )}
 
       {/* Recorder Controls */}
       <div className="panel-border rounded-sm p-3 flex flex-wrap items-end justify-between gap-3">
@@ -355,6 +388,22 @@ export function SessionAnalysisView({
           <div className="text-xs font-semibold text-[#86efac] tracking-wider">
             LOCAL SESSION COMPARISON (COMPUTED OFF-THREAD IN DSP WORKER)
           </div>
+
+          {comparisonError && (
+            <div
+              role="alert"
+              className="border border-[#ef4444]/60 bg-[#210c0c] text-[#fecaca] px-3 py-2 text-[11px] rounded-sm"
+            >
+              COMPARISON FAILED: {comparisonError}
+            </div>
+          )}
+
+          {comparison?.fingerprintComparison &&
+            !comparison.fingerprintComparison.comparable && (
+              <div className="border border-[#f59e0b]/50 bg-[#181207] text-[#fcd34d] px-3 py-2 text-[11px] rounded-sm">
+                Spectral similarity is not reported: {comparison.fingerprintComparison.incompatibilityReasons.join(' ')}
+              </div>
+            )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <label className="space-y-1">
               <span className="text-[11px] text-[#7a9384] block">Baseline Session A</span>
@@ -406,20 +455,20 @@ export function SessionAnalysisView({
               <MetricTile
                 label="Spectral Similarity"
                 value={
-                  comparison.fingerprintComparison
+                  comparison.fingerprintComparison?.comparable
                     ? `${(comparison.fingerprintComparison.cosineSimilarity * 100).toFixed(1)}%`
                     : 'N/A'
                 }
                 accent={
-                  comparison.fingerprintComparison &&
+                  comparison.fingerprintComparison?.comparable &&
                   comparison.fingerprintComparison.cosineSimilarity >= 0.85
                     ? 'green'
                     : 'amber'
                 }
                 subtext={
-                  comparison.fingerprintComparison
+                  comparison.fingerprintComparison?.comparable
                     ? `RMSE ${comparison.fingerprintComparison.spectralDistanceDb.toFixed(1)} dB`
-                    : undefined
+                    : 'Grids not comparable'
                 }
               />
             </div>

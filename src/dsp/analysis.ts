@@ -1,9 +1,10 @@
 import type {
   ActivityClassification,
+  ActivityFrame,
   ActivityInferenceResult,
   DeviceMetadataSnapshot,
-  DspFrame,
   EnvironmentalFingerprint,
+  FeatureFrame,
   FingerprintComparison,
   InputMode,
 } from '../types/acoustic';
@@ -31,8 +32,40 @@ export function computeLogBandEdges(
   return edges;
 }
 
+/**
+ * Assign every FFT bin to at most one log band. Band powers are therefore
+ * disjoint: no bin is counted twice, and bands narrower than one bin simply
+ * contain no bins (their power is reported as the -120 dBFS floor).
+ */
+export function buildLogBandBinMap(
+  fftSize: number,
+  sampleRate: number,
+  bandEdges: Array<{ lowHz: number; highHz: number }>
+): Int16Array {
+  const binCount = Math.floor(fftSize / 2) + 1;
+  const binToBand = new Int16Array(binCount).fill(-1);
+  const binWidth = sampleRate / fftSize;
+  const nyquist = sampleRate / 2;
+
+  for (let k = 1; k < binCount; k++) {
+    const freq = k * binWidth;
+    for (let b = 0; b < bandEdges.length; b++) {
+      const isLast = b === bandEdges.length - 1;
+      const inBand = isLast
+        ? freq >= bandEdges[b].lowHz && freq <= nyquist
+        : freq >= bandEdges[b].lowHz && freq < bandEdges[b].highHz;
+      if (inBand) {
+        binToBand[k] = b;
+        break;
+      }
+    }
+  }
+
+  return binToBand;
+}
+
 export function buildEnvironmentalFingerprint(
-  frames: DspFrame[],
+  frames: FeatureFrame[],
   label: string,
   sourceMode: InputMode
 ): EnvironmentalFingerprint {
@@ -40,15 +73,25 @@ export function buildEnvironmentalFingerprint(
     throw new Error('Cannot build environmental fingerprint from 0 frames.');
   }
 
-  const first = frames[0];
-  const last = frames[frames.length - 1];
+  // Only frames on the first frame's analysis grid are comparable. Mixing
+  // sample rates or FFT sizes inside one fingerprint would silently average
+  // incommensurable band edges, so mismatched frames are excluded and counted.
+  const grid = frames[0];
+  const usable = frames.filter(
+    (f) => f.sampleRate === grid.sampleRate && f.fftSize === grid.fftSize
+  );
+  const excludedFrameCount = frames.length - usable.length;
+
+  const first = usable[0];
+  const last = usable[usable.length - 1];
   const sampleRate = first.sampleRate;
   const fftSize = first.fftSize;
   const nyquist = sampleRate / 2;
   const bandEdges = computeLogBandEdges(20, nyquist, LOG_BAND_COUNT);
+  const binToBand = buildLogBandBinMap(fftSize, sampleRate, bandEdges);
 
-  const n = frames.length;
-  const rmsValues = frames.map((f) => f.rmsDbfs).sort((a, b) => a - b);
+  const n = usable.length;
+  const rmsValues = usable.map((f) => f.rmsDbfs).sort((a, b) => a - b);
   const floorIdx = Math.max(0, Math.floor(0.1 * (n - 1)));
   const noiseFloorDbfs = rmsValues[floorIdx];
 
@@ -63,10 +106,9 @@ export function buildEnvironmentalFingerprint(
   let sumHigh = 0;
 
   const bandPowerAccum = new Float64Array(LOG_BAND_COUNT);
-  const binWidth = sampleRate / fftSize;
 
   for (let i = 0; i < n; i++) {
-    const f = frames[i];
+    const f = usable[i];
     sumRmsDb += f.rmsDbfs;
     if (f.peakDbfs > maxPeakDb) maxPeakDb = f.peakDbfs;
     sumCentroid += f.spectralCentroidHz;
@@ -77,26 +119,20 @@ export function buildEnvironmentalFingerprint(
     sumMid += f.bandEnergy.midRatio;
     sumHigh += f.bandEnergy.highRatio;
 
-    // Accumulate power into 32 log bands
-    for (let b = 0; b < LOG_BAND_COUNT; b++) {
-      const { lowHz, highHz } = bandEdges[b];
-      const startBin = Math.max(1, Math.floor(lowHz / binWidth));
-      const endBin = Math.min(
-        f.powerSpectrum.length - 1,
-        Math.max(startBin, Math.ceil(highHz / binWidth))
-      );
-      let bandSum = 0;
-      for (let k = startBin; k <= endBin; k++) {
-        bandSum += f.powerSpectrum[k];
+    // Accumulate power into 32 log bands, one band per FFT bin (disjoint).
+    const binLimit = Math.min(f.powerSpectrum.length, binToBand.length);
+    for (let k = 1; k < binLimit; k++) {
+      const band = binToBand[k];
+      if (band >= 0) {
+        bandPowerAccum[band] += f.powerSpectrum[k];
       }
-      bandPowerAccum[b] += bandSum;
     }
   }
 
   const meanRmsDbfs = sumRmsDb / n;
   let sqDiff = 0;
   for (let i = 0; i < n; i++) {
-    const d = frames[i].rmsDbfs - meanRmsDbfs;
+    const d = usable[i].rmsDbfs - meanRmsDbfs;
     sqDiff += d * d;
   }
   const rmsStdDevDb = Math.sqrt(sqDiff / n);
@@ -114,8 +150,11 @@ export function buildEnvironmentalFingerprint(
     logBandDbfs.push(powerToDbfs(meanP));
   }
 
+  // A silent window has no spectral evidence. Emitting an all-zero
+  // distribution (instead of a uniform one) stops two empty windows from
+  // looking identical to a cosine-similarity comparison.
   const logBandDistribution = meanBandPower.map((p) =>
-    totalLogPower > 1e-14 ? p / totalLogPower : 1 / LOG_BAND_COUNT
+    totalLogPower > 1e-14 ? p / totalLogPower : 0
   );
 
   const durationSec = Math.max(
@@ -148,6 +187,7 @@ export function buildEnvironmentalFingerprint(
     logBandCentersHz,
     logBandDbfs,
     logBandDistribution,
+    excludedFrameCount,
   };
 }
 
@@ -192,11 +232,48 @@ export function compareFingerprints(
   };
 
   const minFrames = Math.min(a.frameCount, b.frameCount);
-  const confidenceLabel: 'Low' | 'Moderate' | 'High' =
-    minFrames >= 60 ? 'High' : minFrames >= 25 ? 'Moderate' : 'Low';
+
+  // Two profiles are only comparable when they were measured on the same
+  // analysis grid and both contain measurable spectral energy.
+  const incompatibilityReasons: string[] = [];
+  if (a.sampleRate !== b.sampleRate) {
+    incompatibilityReasons.push(
+      `Sample rates differ (${a.sampleRate} Hz vs ${b.sampleRate} Hz), so the log-band edges are not aligned.`
+    );
+  }
+  if (a.fftSize !== b.fftSize) {
+    incompatibilityReasons.push(
+      `FFT sizes differ (${a.fftSize} vs ${b.fftSize}), so spectral resolution differs between windows.`
+    );
+  }
+  if (a.logBandCentersHz.length !== b.logBandCentersHz.length) {
+    incompatibilityReasons.push(
+      `Band counts differ (${a.logBandCentersHz.length} vs ${b.logBandCentersHz.length}).`
+    );
+  }
+  const energyA = a.logBandDistribution.reduce((s, v) => s + v, 0);
+  const energyB = b.logBandDistribution.reduce((s, v) => s + v, 0);
+  if (energyA <= 1e-9 || energyB <= 1e-9) {
+    incompatibilityReasons.push(
+      'At least one window contains no measurable spectral power, so there is no spectral evidence to compare.'
+    );
+  }
+  const comparable = incompatibilityReasons.length === 0;
+
+  const confidenceLabel: 'Low' | 'Moderate' | 'High' = !comparable
+    ? 'Low'
+    : minFrames >= 60
+      ? 'High'
+      : minFrames >= 25
+        ? 'Moderate'
+        : 'Low';
 
   let interpretation: string;
-  if (cosineSimilarity >= 0.92 && Math.abs(noiseFloorDeltaDb) < 4) {
+  if (!comparable) {
+    interpretation = `NOT COMPARABLE — no similarity score is reported. ${incompatibilityReasons.join(
+      ' '
+    )} Re-capture both windows from the same input source with the same sample rate and FFT size.`;
+  } else if (cosineSimilarity >= 0.92 && Math.abs(noiseFloorDeltaDb) < 4) {
     interpretation =
       'High spectral-shape alignment and comparable noise floor between the two windows. Consistent with stable ambient acoustics or similar signal sources, though NOT proof of identical physical location or hardware.';
   } else if (cosineSimilarity >= 0.75) {
@@ -213,6 +290,8 @@ export function compareFingerprints(
     'The same room with a window opened, fan toggled, or microphone moved can exhibit low similarity.',
     'Browser automatic gain control (AGC) and noise suppression alter absolute noise floors and spectral tilt.',
     `Comparison computed across ${LOG_BAND_COUNT} log-spaced bands (${minFrames} minimum frames per window).`,
+    'Each FFT bin belongs to exactly one log band, so band powers do not overlap; bands narrower than one bin carry no bins and read as the -120 dBFS floor.',
+    'The Low/Moderate/High confidence label is a frame-count heuristic (25 and 60 frames), not a validated statistical confidence interval.',
   ];
 
   return {
@@ -223,6 +302,8 @@ export function compareFingerprints(
     flatnessDelta,
     bandDeltas,
     perBandDeltaDb,
+    comparable,
+    incompatibilityReasons,
     confidenceLabel,
     interpretation,
     limitations,
@@ -234,7 +315,7 @@ export function compareFingerprints(
  * Evaluates a short rolling buffer of recent frames (typically 1.5–4 seconds).
  */
 export function inferBroadActivity(
-  frames: DspFrame[],
+  frames: ActivityFrame[],
   activityThresholdDbfs = -50
 ): ActivityInferenceResult {
   if (frames.length === 0) {
@@ -449,7 +530,7 @@ export interface PrivacyLeakageAssessment {
 }
 
 export function evaluatePrivacyLeakage(
-  frames: DspFrame[],
+  frames: ActivityFrame[],
   metadata: DeviceMetadataSnapshot,
   activity: ActivityInferenceResult | null
 ): PrivacyLeakageAssessment {

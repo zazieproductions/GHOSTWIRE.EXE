@@ -1,4 +1,9 @@
-import type { BandEnergy, DspFrame } from '../types/acoustic';
+import type {
+  ActivityFrame,
+  BandEnergy,
+  DspFrame,
+  FeatureFrame,
+} from '../types/acoustic';
 import { computeHannSpectrum } from './fft';
 
 export const MIN_AMPLITUDE_FLOOR = 1e-6; // -120 dBFS
@@ -16,6 +21,51 @@ export function powerToDbfs(power: number): number {
     return -120;
   }
   return Math.max(-120, 10 * Math.log10(power));
+}
+
+function derivedFeatureFields(frame: DspFrame): ActivityFrame {
+  return {
+    timestampMs: frame.timestampMs,
+    sampleRate: frame.sampleRate,
+    fftSize: frame.fftSize,
+    binWidthHz: frame.binWidthHz,
+    rms: frame.rms,
+    peak: frame.peak,
+    rmsDbfs: frame.rmsDbfs,
+    peakDbfs: frame.peakDbfs,
+    crestFactorDb: frame.crestFactorDb,
+    dominantFrequencyHz: frame.dominantFrequencyHz,
+    spectralCentroidHz: frame.spectralCentroidHz,
+    spectralBandwidthHz: frame.spectralBandwidthHz,
+    spectralFlatness: frame.spectralFlatness,
+    zeroCrossingRate: frame.zeroCrossingRate,
+    zcrFrequencyHz: frame.zcrFrequencyHz,
+    bandEnergy: frame.bandEnergy,
+    noiseFloorDbfs: frame.noiseFloorDbfs,
+    snrDb: frame.snrDb,
+    isActive: frame.isActive,
+  };
+}
+
+/**
+ * Reduce a live frame to scalar features for rolling activity buffers.
+ * Copies fields explicitly so no time-domain or spectral buffer can leak into
+ * long-lived state.
+ */
+export function toActivityFrame(frame: DspFrame): ActivityFrame {
+  return derivedFeatureFields(frame);
+}
+
+/**
+ * Reduce a live frame to a fingerprint frame: derived spectra plus scalar
+ * features, never the time-domain waveform.
+ */
+export function toFeatureFrame(frame: DspFrame): FeatureFrame {
+  return {
+    ...derivedFeatureFields(frame),
+    spectrumDbfs: frame.spectrumDbfs,
+    powerSpectrum: frame.powerSpectrum,
+  };
 }
 
 export function computeRms(samples: Float32Array): number {

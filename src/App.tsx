@@ -11,13 +11,16 @@ import { SessionAnalysisView } from './components/views/SessionAnalysisView';
 import { SettingsView } from './components/views/SettingsView';
 import { SyntheticSignalsView } from './components/views/SyntheticSignalsView';
 import { inferBroadActivity } from './dsp/analysis';
+import { toActivityFrame, toFeatureFrame } from './dsp/metrics';
 import { DEFAULT_SYNTHETIC_CONFIG } from './dsp/synthetic';
 import type {
+  ActivityFrame,
   ActivityInferenceResult,
   AppSettings,
   DeviceMetadataSnapshot,
   DspFrame,
   ExperimentId,
+  FeatureFrame,
   InputMode,
   MeasurementSession,
   NavTab,
@@ -29,9 +32,24 @@ import {
   buildMeasurementSession,
   frameToSessionSample,
 } from './utils/exportSession';
+import {
+  clearPersistedSessions,
+  grantPersistenceConsent,
+  hasPersistenceConsent,
+  loadPersistedSessions,
+  revokePersistenceConsent,
+  savePersistedSessions,
+} from './utils/sessionStorage';
 import { dspWorkerClient } from './workers/dspWorkerClient';
 
-const STORAGE_KEY_SESSIONS = 'ghostwire.exe:sessions:v1';
+/** Session metadata frozen when recording starts, so later source or setting changes cannot relabel it. */
+interface SessionProvenance {
+  name: string;
+  startedAtIso: string;
+  sourceMode: InputMode;
+  sampleRate: number | null;
+  fftSize: number;
+}
 
 const DEFAULT_SETTINGS: AppSettings = {
   fftSize: 2048,
@@ -75,13 +93,16 @@ export default function App() {
   const [latestFrame, setLatestFrame] = useState<DspFrame | null>(null);
   const [postFrame, setPostFrame] = useState<DspFrame | null>(null);
   const [activity, setActivity] = useState<ActivityInferenceResult | null>(null);
-  const recentFramesRef = useRef<DspFrame[]>([]);
+  // Activity buffer holds scalar features only — deliberately no PCM samples.
+  const recentFramesRef = useRef<ActivityFrame[]>([]);
   const lastUiCommitMsRef = useRef<number>(0);
 
   // Session recording state (ephemeral RAM by default)
   const [recordingState, setRecordingState] = useState<
     'idle' | 'recording' | 'paused'
   >('idle');
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const [micRequestPending, setMicRequestPending] = useState(false);
   const [activeSessionName, setActiveSessionName] = useState('Session 01');
   const [activeSessionDurationSec, setActiveSessionDurationSec] = useState(0);
   const [activeSamples, setActiveSamples] = useState<SessionSamplePoint[]>([]);
@@ -93,7 +114,12 @@ export default function App() {
   const sessionElapsedAccumSecRef = useRef<number>(0);
   const lastSessionSampleMsRef = useRef<number>(0);
   const activeSamplesRef = useRef<SessionSamplePoint[]>([]);
-  const sessionFingerprintFramesRef = useRef<DspFrame[]>([]);
+  // Fingerprint frames keep derived spectra only: no time-domain PCM.
+  const sessionFingerprintFramesRef = useRef<FeatureFrame[]>([]);
+  const sessionProvenanceRef = useRef<SessionProvenance | null>(null);
+  const finalizeSessionRef = useRef<(notice?: string) => void>(() => {});
+  const savedSessionsRef = useRef<MeasurementSession[]>([]);
+  savedSessionsRef.current = savedSessions;
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -105,9 +131,9 @@ export default function App() {
       onFrame: (pre, post) => {
         const now = performance.now();
 
-        // Keep rolling ~3.5s frame buffer for Experiment B & E
+        // Keep rolling ~3.5s feature buffer for Experiment B & E
         const buf = recentFramesRef.current;
-        buf.push(pre);
+        buf.push(toActivityFrame(pre));
         if (buf.length > 90) {
           buf.shift();
         }
@@ -121,9 +147,9 @@ export default function App() {
               sessionElapsedAccumSecRef.current +
               (wallNow - sessionStartMsRef.current) / 1000;
             const pt = frameToSessionSample(pre, elapsed);
-            activeSamplesRef.current = [...activeSamplesRef.current, pt];
+            activeSamplesRef.current.push(pt);
             if (sessionFingerprintFramesRef.current.length < 180) {
-              sessionFingerprintFramesRef.current.push(pre);
+              sessionFingerprintFramesRef.current.push(toFeatureFrame(pre));
             }
             setActiveSessionDurationSec(elapsed);
             setActiveSamples(activeSamplesRef.current);
@@ -147,6 +173,27 @@ export default function App() {
           setPostFrame(null);
           setActivity(null);
           recentFramesRef.current = [];
+          if (recordingStateRef.current === 'recording') {
+            // Freeze elapsed time rather than billing quiet wall-clock time to
+            // the measurement, and keep the samples for an explicit save.
+            sessionElapsedAccumSecRef.current +=
+              (Date.now() - sessionStartMsRef.current) / 1000;
+            sessionStartMsRef.current = Date.now();
+            setRecordingState('paused');
+            setSessionNotice(
+              'Session auto-paused: the input source stopped. Restart the same source to resume, or STOP & SAVE to finalise it.'
+            );
+          }
+        } else if (
+          recordingStateRef.current !== 'idle' &&
+          sessionProvenanceRef.current &&
+          nextMode !== sessionProvenanceRef.current.sourceMode
+        ) {
+          // A recording belongs to the source it started with. Switching source
+          // finalises it instead of silently mixing provenance.
+          finalizeSessionRef.current(
+            'Session auto-finalised: the input source changed, so it was saved with its original provenance before the new source started.'
+          );
         }
       },
       onMetadataChange: (snap) => {
@@ -170,49 +217,71 @@ export default function App() {
       engine.stopCapture();
       dspWorkerClient.dispose();
       engineRef.current = null;
+      // Release every retained buffer on unmount.
+      recentFramesRef.current = [];
+      sessionFingerprintFramesRef.current = [];
+      activeSamplesRef.current = [];
+      sessionProvenanceRef.current = null;
     };
   }, []);
 
-  // Optional local persistence ONLY if explicitly opted in
+  // Restore a previous explicit opt-in on mount. A stored consent marker — not
+  // the default settings value — decides whether saved sessions are restored,
+  // so a reload can never delete data the user chose to keep.
   useEffect(() => {
-    if (settings.persistSessionsLocally) {
-      try {
-        localStorage.setItem(
-          STORAGE_KEY_SESSIONS,
-          JSON.stringify(savedSessions)
-        );
-      } catch {
-        // ignore storage quota errors
-      }
-    } else {
-      try {
-        localStorage.removeItem(STORAGE_KEY_SESSIONS);
-      } catch {
-        // ignore
-      }
+    if (!hasPersistenceConsent()) return;
+    const { sessions, error } = loadPersistedSessions();
+    if (error) {
+      // Never auto-enable writes over data that could not be read: that would
+      // replace a future-version or corrupt payload with an empty list.
+      setErrorBanner(error);
+      return;
     }
-  }, [settings.persistSessionsLocally, savedSessions]);
-
-  const handleUpdateSettings = useCallback((next: AppSettings) => {
-    setSettings(next);
-    engineRef.current?.updateSettings(next);
-    if (next.persistSessionsLocally && !settingsRef.current.persistSessionsLocally) {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY_SESSIONS);
-        if (raw) {
-          const parsed = JSON.parse(raw) as MeasurementSession[];
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setSavedSessions((prev) => (prev.length === 0 ? parsed : prev));
-          }
-        }
-      } catch {
-        // ignore malformed storage
-      }
+    setSettings((prev) => ({ ...prev, persistSessionsLocally: true }));
+    if (sessions.length > 0) {
+      setSavedSessions((prev) => (prev.length === 0 ? sessions : prev));
     }
   }, []);
 
-  const handleEnableMicrophone = useCallback(() => {
-    void engineRef.current?.enableMicrophone(settingsRef.current.micConstraints);
+  // Write only while persistence is explicitly enabled. Deleting stored data is
+  // reserved for an intentional opt-out or "Clear All Session Data".
+  useEffect(() => {
+    if (!settings.persistSessionsLocally) return;
+    const result = savePersistedSessions(savedSessions);
+    if (!result.ok) setErrorBanner(result.error);
+  }, [settings.persistSessionsLocally, savedSessions]);
+
+  const handleUpdateSettings = useCallback((next: AppSettings) => {
+    const wasPersisting = settingsRef.current.persistSessionsLocally;
+    setSettings(next);
+    engineRef.current?.updateSettings(next);
+
+    if (next.persistSessionsLocally && !wasPersisting) {
+      const consent = grantPersistenceConsent();
+      if (!consent.ok) setErrorBanner(consent.error);
+      const { sessions, error } = loadPersistedSessions();
+      if (error) {
+        setErrorBanner(error);
+      } else if (sessions.length > 0) {
+        setSavedSessions((prev) => (prev.length === 0 ? sessions : prev));
+      }
+    } else if (!next.persistSessionsLocally && wasPersisting) {
+      // Intentional opt-out is the only non-explicit-clear path that deletes data.
+      revokePersistenceConsent();
+      const cleared = clearPersistedSessions();
+      if (!cleared.ok) setErrorBanner(cleared.error);
+    }
+  }, []);
+
+  const handleEnableMicrophone = useCallback(async () => {
+    setMicRequestPending(true);
+    try {
+      await engineRef.current?.enableMicrophone(
+        settingsRef.current.micConstraints
+      );
+    } finally {
+      setMicRequestPending(false);
+    }
   }, []);
 
   const handleStopCapture = useCallback(() => {
@@ -259,72 +328,94 @@ export default function App() {
     sessionElapsedAccumSecRef.current = 0;
     sessionStartMsRef.current = Date.now();
     lastSessionSampleMsRef.current = 0;
+    // Freeze provenance now; later source or FFT changes cannot relabel this run.
+    sessionProvenanceRef.current = {
+      name: activeSessionName.trim() || `Session ${savedSessionsRef.current.length + 1}`,
+      startedAtIso: new Date().toISOString(),
+      sourceMode: mode,
+      sampleRate: latestFrame?.sampleRate ?? null,
+      fftSize: settingsRef.current.fftSize,
+    };
     setActiveSamples([]);
     setActiveSessionDurationSec(0);
+    setSessionNotice(null);
     setRecordingState('recording');
-  }, [mode]);
+  }, [activeSessionName, latestFrame?.sampleRate, mode]);
 
-  const handlePauseToggle = useCallback(() => {
-    if (recordingState === 'recording') {
-      sessionElapsedAccumSecRef.current +=
-        (Date.now() - sessionStartMsRef.current) / 1000;
-      setRecordingState('paused');
-    } else if (recordingState === 'paused') {
-      sessionStartMsRef.current = Date.now();
-      setRecordingState('recording');
-    }
-  }, [recordingState]);
+  const finalizeActiveSession = useCallback((notice?: string) => {
+    const provenance = sessionProvenanceRef.current;
+    if (recordingStateRef.current === 'idle' || !provenance) return;
 
-  const handleStopSession = useCallback(() => {
-    if (recordingState === 'idle') return;
-    const totalDur =
-      recordingState === 'recording'
-        ? sessionElapsedAccumSecRef.current +
-          (Date.now() - sessionStartMsRef.current) / 1000
-        : sessionElapsedAccumSecRef.current;
+    const activeSec =
+      recordingStateRef.current === 'recording'
+        ? (Date.now() - sessionStartMsRef.current) / 1000
+        : 0;
+    const totalDur = sessionElapsedAccumSecRef.current + activeSec;
 
     const session = buildMeasurementSession({
       id: `sess-${Date.now().toString(36)}`,
-      name: activeSessionName.trim() || `Session ${savedSessions.length + 1}`,
-      startedAtIso:
-        activeSamplesRef.current[0]?.timestampIso ?? new Date().toISOString(),
+      name: provenance.name,
+      startedAtIso: provenance.startedAtIso,
       endedAtIso: new Date().toISOString(),
       durationSec: Math.max(0.1, totalDur),
-      sourceMode: mode,
-      sampleRate: latestFrame?.sampleRate ?? 48000,
-      fftSize: settings.fftSize,
+      sourceMode: provenance.sourceMode,
+      sampleRate: provenance.sampleRate,
+      fftSize: provenance.fftSize,
       samples: activeSamplesRef.current,
       framesForFingerprint: sessionFingerprintFramesRef.current,
     });
 
     setSavedSessions((prev) => [session, ...prev]);
-    setActiveSessionName(`Session ${String(savedSessions.length + 2).padStart(2, '0')}`);
+    setActiveSessionName(
+      `Session ${String(savedSessionsRef.current.length + 2).padStart(2, '0')}`
+    );
     setRecordingState('idle');
+    sessionProvenanceRef.current = null;
     activeSamplesRef.current = [];
     sessionFingerprintFramesRef.current = [];
     setActiveSamples([]);
     setActiveSessionDurationSec(0);
-  }, [
-    activeSessionName,
-    latestFrame?.sampleRate,
-    mode,
-    recordingState,
-    savedSessions.length,
-    settings.fftSize,
-  ]);
+    if (notice) setSessionNotice(notice);
+  }, []);
+
+  finalizeSessionRef.current = finalizeActiveSession;
+
+  const handlePauseToggle = useCallback(() => {
+    if (recordingState === 'recording') {
+      sessionElapsedAccumSecRef.current +=
+        (Date.now() - sessionStartMsRef.current) / 1000;
+      sessionStartMsRef.current = Date.now();
+      setRecordingState('paused');
+    } else if (recordingState === 'paused') {
+      const provenance = sessionProvenanceRef.current;
+      if (mode === 'idle' || !provenance || provenance.sourceMode !== mode) {
+        finalizeActiveSession(
+          'Session finalised: resuming requires the same input source it was started with.'
+        );
+        return;
+      }
+      sessionStartMsRef.current = Date.now();
+      setRecordingState('recording');
+    }
+  }, [finalizeActiveSession, mode, recordingState]);
+
+  const handleStopSession = useCallback(() => {
+    finalizeActiveSession();
+  }, [finalizeActiveSession]);
 
   const handleClearAllSessionData = useCallback(() => {
     setRecordingState('idle');
+    sessionProvenanceRef.current = null;
     activeSamplesRef.current = [];
     sessionFingerprintFramesRef.current = [];
+    recentFramesRef.current = [];
     setActiveSamples([]);
     setActiveSessionDurationSec(0);
+    setSessionNotice(null);
     setSavedSessions([]);
-    try {
-      localStorage.removeItem(STORAGE_KEY_SESSIONS);
-    } catch {
-      // ignore
-    }
+    revokePersistenceConsent();
+    const cleared = clearPersistedSessions();
+    if (!cleared.ok) setErrorBanner(cleared.error);
   }, []);
 
   return (
@@ -391,9 +482,11 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleEnableMicrophone}
-                className="px-3 py-1.5 text-xs font-semibold rounded-sm bg-[#14532d] hover:bg-[#166534] text-[#bbf7d0] border border-[#22c55e]/60 cursor-pointer"
+                disabled={micRequestPending}
+                aria-busy={micRequestPending}
+                className="px-3 py-1.5 text-xs font-semibold rounded-sm bg-[#14532d] hover:bg-[#166534] disabled:opacity-60 text-[#bbf7d0] border border-[#22c55e]/60 cursor-pointer disabled:cursor-wait"
               >
-                ENABLE MICROPHONE
+                {micRequestPending ? 'REQUESTING MIC…' : 'ENABLE MICROPHONE'}
               </button>
             )}
 
@@ -528,6 +621,7 @@ export default function App() {
             activeSamples={activeSamples}
             savedSessions={savedSessions}
             persistLocally={settings.persistSessionsLocally}
+            sessionNotice={sessionNotice}
             onChangeSessionName={setActiveSessionName}
             onStartSession={handleStartSession}
             onPauseToggle={handlePauseToggle}

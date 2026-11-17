@@ -10,6 +10,25 @@ The project has a useful defensive foundation: explicit microphone activation, a
 
 **Priority key:** P0 = privacy/safety trust boundary; P1 = significant data loss, measurement validity, or development security risk; P2 = reliability or operational gap. Priorities are project-specific, not CVSS ratings.
 
+### Remediation status (2026-11-17)
+
+The P0 findings and the tractable P1 findings were fixed in a follow-up change set with regression tests. Status: ✅ implemented and verified, ◐ partially addressed, ☐ open.
+
+| ID | Status | Change | Remaining work |
+|:--|:--:|:--|:--|
+| F1 | ✅ | Live frames are projected to `ActivityFrame` (scalars) and `FeatureFrame` (derived spectra, no PCM) before anything retains them; capture buffers are cleared on finish, reset, stop, clear and unmount; a test asserts exports contain no waveform or spectral keys. | — |
+| F2 | ✅ | A monotonic operation token is invalidated by stop, mode change and unmount; every `await` is followed by an ownership check that stops stale streams; superseded rejections cannot tear down a newer capture; the enable control shows a pending state. Covered by three race tests. | — |
+| F3 | ✅ | A consent marker (`ghostwire.exe:sessions:consent:v1`) drives restore-on-mount instead of the default setting; writes never delete; opt-out and "Clear All Session Data" are the only deletions; stored data is validated; quota and parse failures are surfaced instead of swallowed, and unreadable data is left intact. | — |
+| F4 | ◐ | Session provenance (source, sample rate, FFT size, label, start time) is frozen at start; a source change auto-finalises the session, input loss auto-pauses it, resume requires the same source, and fingerprint frames from a different analysis grid are excluded and counted. Missing sample rates are stored as `null` rather than fabricated. | Per-sample timestamps, gap segmentation and a representative fingerprint aggregate across long sessions are still open. |
+| F5 | ✅ | Each FFT bin is assigned to exactly one log band (disjoint integration), silent windows carry no spectral evidence, mismatched sample rates/FFT sizes/band counts are declared non-comparable instead of scored, and the confidence label is documented as a frame-count heuristic. Covered by band-map, power-accounting and comparability tests. | Calibration against controlled repeatability datasets remains future validation work. |
+| F6 | ☐ | No change to cadence estimation. | Time-aware envelopes and gap detection. |
+| F7 | ◐ | The refreshed lockfile now reports 0 advisories (`npm audit`: 0 vulnerabilities), clearing the three findings. | Automated dependency scanning in CI is still not configured in this repository. |
+| F8 | ◐ | The per-sample full-array copy in the session sampler was replaced with an in-place push. | Duration/sample caps and FFT profiling are open. |
+| F9 | ◐ | Fingerprint and session comparisons now catch rejections, ignore stale responses and display the failure. | Permanent worker fallback and device-enumeration error handling are open. |
+| F10 | ◐ | The suite grew from 13 to 31 tests covering capture races, persistence reload/opt-out/corruption/quota, retention, band accounting and export safety. | CI workflow, cross-browser E2E matrix and the mock-constructor fix's browser validation. |
+| F11 | ◐ | `SECURITY.md` now scopes `connect-src 'none'` and the meta-tag CSP to what they actually enforce. | Server-delivered headers and deployment testing. |
+| F12 | ◐ | CSV metadata is control-character sanitised and data cells are quoted and formula-prefixed; HTML escaping covers single quotes; tests cover injection and round-trip structure. | Accessibility review (keyboard, screen reader, contrast, chart alternatives). |
+
 | ID | Priority | Finding | Fundamental missing capability |
 |:--|:--:|:--|:--|
 | F1 | P0 | Raw waveform copies retained in buffers | Data minimization and accurate retention guarantees |
@@ -125,20 +144,20 @@ The project has a useful defensive foundation: explicit microphone activation, a
 
 ## Remediation checklist
 
-This GitHub-rendered task list tracks the proposed work in priority order. All items are open; see the linked findings for evidence and qualification. Check an item only after implementation, documentation and the relevant verification are complete. Findings are a point-in-time assessment; reassess applicability as the code changes.
+This GitHub-rendered task list tracks the proposed work in priority order. Items are checked only after implementation, documentation and the relevant verification are complete; partially addressed items stay open with a status note above. Findings are a point-in-time assessment; reassess applicability as the code changes.
 
 ### P0 — Capture and privacy boundaries
 
-- [ ] **F1:** Separate transient waveform data from feature-only activity and fingerprint buffers; clear capture buffers on finish, stop, reset and unmount. Test retention and ensure saved sessions and exports contain no PCM. Document the short-lived buffers required for analysis and display. [Details](#f1--raw-waveform-data-is-retained-beyond-immediate-analysis)
-- [ ] **F2:** Make asynchronous microphone start cancellation-safe across stop, mode changes, overlapping requests and unmount; stop stale streams and expose pending/error states. Test deferred grants, rejections and track termination. [Details](#f2--capture-cancellation-is-not-race-safe)
+- [x] **F1:** Separate transient waveform data from feature-only activity and fingerprint buffers; clear capture buffers on finish, stop, reset and unmount. Test retention and ensure saved sessions and exports contain no PCM. Document the short-lived buffers required for analysis and display. [Details](#f1--raw-waveform-data-is-retained-beyond-immediate-analysis)
+- [x] **F2:** Make asynchronous microphone start cancellation-safe across stop, mode changes, overlapping requests and unmount; stop stale streams and expose pending/error states. Test deferred grants, rejections and track termination. [Details](#f2--capture-cancellation-is-not-race-safe)
 
 ### P1 — Data integrity and research validity
 
-- [ ] **F3:** Fix opt-in session restoration and intentional deletion semantics; surface storage failures and validate stored data. Test reload, opt-out, clear, malformed data and quota errors. [Details](#f3--opt-in-persistence-is-deleted-on-reload)
+- [x] **F3:** Fix opt-in session restoration and intentional deletion semantics; surface storage failures and validate stored data. Test reload, opt-out, clear, malformed data and quota errors. [Details](#f3--opt-in-persistence-is-deleted-on-reload)
 - [ ] **F4:** Capture session provenance at start and segment or stop sessions on source, sample-rate or configuration changes. Record gaps and accurately describe the fingerprint sampling interval; test transitions and long sessions. [Details](#f4--session-provenance-and-lifecycle-are-not-stable)
-- [ ] **F5:** Make spectral band integration non-overlapping, handle silence, and reject or rebin incompatible frequency grids. Label confidence as a heuristic and test power accounting and controlled comparisons. [Details](#f5--fingerprints-do-not-ensure-comparable-frequency-bands)
+- [x] **F5:** Make spectral band integration non-overlapping, handle silence, and reject or rebin incompatible frequency grids. Label confidence as a heuristic and test power accounting and controlled comparisons. [Details](#f5--fingerprints-do-not-ensure-comparable-frequency-bands)
 - [ ] **F6:** Use time-aware, regularly sampled activity envelopes; detect gaps and suppress unsupported cadence estimates. Test known signals with jitter, dropped frames and backgrounding. [Details](#f6--activity-cadence-assumes-evenly-spaced-animation-frames)
-- [ ] **F7:** Review the test dependency advisories, upgrade to compatible patched releases, refresh the lockfile and rerun the full validation suite. Establish recurring dependency scanning. [Details](#f7--development-dependencies-have-known-advisories)
+- [ ] **F7:** Review the test dependency advisories, upgrade to compatible patched releases, refresh the lockfile and rerun the full validation suite. Establish recurring dependency scanning. _(Advisories cleared: `npm audit` reports 0. CI scanning still open.)_ [Details](#f7--development-dependencies-have-known-advisories)
 
 ### P2 — Reliability, delivery and usability
 
@@ -161,4 +180,16 @@ When measurement or export semantics change, version them where appropriate and 
 | `npm audit --json` | 3 affected packages: 2 critical, 1 moderate; development dependency chain. Counts/advisories are time-dependent. |
 | `npx playwright test` | Could not execute: Chromium executable was not installed in this environment. The single browser test failed at launch, before exercising the application. |
 
-No fixes were implemented as part of this audit. Findings involving races, performance, accessibility, or browser-specific behavior should be confirmed with targeted tests in their intended environments.
+No fixes were implemented as part of the initial audit. Findings involving races, performance, accessibility, or browser-specific behavior should be confirmed with targeted tests in their intended environments.
+
+### Follow-up verification (remediation change set)
+
+| Check | Result |
+|:--|:--|
+| `npm audit` | 0 vulnerabilities after the current lockfile was installed. |
+| `npx tsc -b` | Passed. |
+| `npm test` | Passed: 4 files, 31 tests, including new capture-race, persistence, retention, band-accounting and export-injection coverage. |
+| `npm run build` | Passed (`tsc -b` + Vite production build). |
+| `npx playwright test` | Not run: no browser executable in this environment. |
+
+The integration tests previously used arrow functions as `AudioContext` mocks; the installed Vitest build rejects arrow implementations as constructors, so the mocks were made constructible. That is a test-harness fix, not a change in application behavior.

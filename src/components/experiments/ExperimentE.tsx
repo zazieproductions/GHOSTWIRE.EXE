@@ -1,16 +1,16 @@
 import { EXPERIMENT_PROTOCOLS } from '../../data/protocols';
 import { evaluatePrivacyLeakage } from '../../dsp/analysis';
 import type {
+  ActivityFrame,
   ActivityInferenceResult,
   DeviceMetadataSnapshot,
-  DspFrame,
   InputMode,
 } from '../../types/acoustic';
 import { ProtocolCard } from '../common/ProtocolCard';
 
 interface ExperimentEProps {
   mode: InputMode;
-  recentFrames: DspFrame[];
+  recentFrames: ActivityFrame[];
   metadata: DeviceMetadataSnapshot;
   activity: ActivityInferenceResult | null;
 }
