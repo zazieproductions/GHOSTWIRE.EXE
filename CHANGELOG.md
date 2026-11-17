@@ -14,6 +14,9 @@ No tagged releases yet. Everything currently on `main` is unreleased.
 
 ### Added
 
+- README screenshot gallery in `docs/screenshots/`, captured from the production build with
+  deterministic synthetic input, showing the live monitor, synthetic testbench, Experiments
+  A/B/E and session analysis.
 - Repository automation: `slop-scan` package verification, `roast-my-codebase` pull
   request health reports, and automated changelog updates on release.
 - Regression coverage for capture races, persistence reload/opt-out/corruption/quota,
