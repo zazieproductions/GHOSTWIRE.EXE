@@ -1,0 +1,62 @@
+name: Merge Version
+
+# On every pushed semver tag, creates the GitHub release from that tag and merges
+# it into the floating major (`v1`) and minor (`v1.0`) branches, creating those
+# branches on the first release.
+#
+# https://github.com/marketplace/actions/merge-version
+#
+# Release flow:
+#   1. Tag a commit and push it:  git tag v1.2.0 && git push origin v1.2.0
+#   2. This workflow creates release `v1.2.0` with generated release notes.
+#   3. Branches `v1` and `v1.2` are created or advanced to the tagged commit.
+#   4. CHANGELOG.md is updated by the `Update Changelog` workflow — but only if a
+#      `RELEASE_TOKEN` secret is set (see the token comment below).
+
+on:
+  push:
+    tags:
+      # Only full semver tags: the action parses the tag with `semver` and fails
+      # the run on anything it cannot parse, including short tags like `v1.2`.
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+# The action creates a release and branches, and merges into them, all through
+# the GitHub API. It needs no checkout and no other scopes.
+permissions:
+  contents: write
+
+concurrency:
+  group: merge-version-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  merge-version:
+    name: Release and advance version branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # Pinned to the exact release: upstream publishes no floating `v1` tag (its
+      # `v1` ref is a mutable branch), so `@v1` would not be immutable. Bump
+      # deliberately.
+      #
+      # Upstream declares the retired `node16` runtime; GitHub runs such actions on
+      # a newer Node with a deprecation warning, so expect that annotation in the
+      # run log. It does not affect the result.
+      #
+      # Inputs intentionally left at their defaults:
+      #   release: 'true'  → create the release from the tag
+      #   minor:   'true'  → also maintain the `v1.2` branch
+      # `pre` is not passed: upstream's action.yml declares `pre`, but the code
+      # reads `pre-release`, so the input has no effect. Prerelease tags (e.g.
+      # `v1.2.0-rc.1`) therefore create a release but do not move the version
+      # branches. Pin this if you need prerelease branch tracking.
+      - name: Create release and merge version branches
+        uses: caijinglong/action-version-merge@v1.0.7
+        with:
+          # Events raised with the default GITHUB_TOKEN do not start new workflow
+          # runs, so the release created here would not trigger `Update Changelog`
+          # on its own. Set a `RELEASE_TOKEN` secret (a PAT or GitHub App token
+          # with `contents: write`) to keep the chain working; without it the
+          # release and version branches are still created.
+          github-token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
