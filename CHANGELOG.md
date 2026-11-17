@@ -14,6 +14,10 @@ No tagged releases yet. Everything currently on `main` is unreleased.
 
 ### Added
 
+- Pull request auto-labeling (`.github/workflows/labeler.yml` with
+  `actions/labeler`): every PR is labeled from the paths it touches, using the
+  `area:`/`dsp:`/`exp:` taxonomy in `.github/labeler.yml`, re-checked on each
+  push, with `needs-triage` on anything the rules could not classify.
 - Reproducible README screenshot pipeline (`npm run screenshots`): a headless-Chromium
   Playwright capture (`scripts/capture-screenshots.mjs`) against the production preview,
   with Experiment A's microphone window fed by a deterministic broadband-noise WAV

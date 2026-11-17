@@ -1,0 +1,93 @@
+name: Pull Request Labeler
+
+# Labels every pull request from the paths it touches, using the taxonomy in
+# .github/labeler.yml. Runs on each push to an open PR, not just on creation,
+# and `sync-labels` keeps the set honest: revert a file and its area label is
+# dropped again.
+#
+# sync-labels only manages labels that appear in .github/labeler.yml, so
+# hand-set labels (priority, size, bug vs enhancement) are never touched — but
+# a label that is both manual and path-derived (`chore`, `documentation`,
+# `test`, `typescript`, `dependencies`) will be removed on the next push if the
+# PR stops matching its globs. Add those by changing the paths, not by hand.
+#
+# https://github.com/marketplace/actions/labeler
+
+on:
+  # `pull_request_target` rather than `pull_request`: the plain event hands
+  # pull requests from forks and Dependabot a read-only token, and labeling
+  # them fails with "Resource not accessible by integration".
+  #
+  # That is normally a dangerous trade, so this workflow keeps the two things
+  # that make `pull_request_target` safe:
+  #   1. no `actions/checkout` and no shell over PR content — the action reads
+  #      the PR's file list over the REST API and never runs contributor code;
+  #   2. `contents: read` and no `secrets.*` beyond GITHUB_TOKEN, so there is
+  #      nothing worth attacking even if (1) ever regresses.
+  #
+  # Consequence: the run uses .github/labeler.yml from the *base* branch, so
+  # edits to the rules only take effect once merged, and this workflow cannot
+  # label the pull request that introduces it. When changing rules, follow the
+  # action's advice — temporarily add a `pull_request:` trigger to validate the
+  # new config against the PR branch, then drop it again before merging.
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+  # Manual re-run, and the escape hatch for labeling pull requests opened
+  # before these rules existed. One PR number per line; leaving it empty makes
+  # the action exit with a warning.
+  workflow_dispatch:
+    inputs:
+      pr_numbers:
+        description: "Pull request numbers to (re)label, one per line"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  # Enough to attach labels that already exist. `issues: write` is only needed
+  # if the action has to create missing labels, which it must not do here —
+  # the label set is curated by maintainers, not by pull requests.
+  pull-requests: write
+
+concurrency:
+  # Empty on workflow_dispatch, where there is no PR to key off; run_id keeps
+  # those runs sequential instead of cancelling each other.
+  group: labeler-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    name: Label by changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Apply and sync labels
+        id: label-the-pr
+        uses: actions/labeler@v7
+        with:
+          # Re-evaluate from scratch on every push instead of only adding, so a
+          # label does not outlive the change that earned it.
+          sync-labels: true
+          # Empty for pull request events, where the action reads the number
+          # off the event payload; `workflow_dispatch` runs supply it here.
+          pr-number: ${{ inputs.pr_numbers }}
+
+      # Advisory summary of what the rules decided, so a misfiled area label is
+      # visible without opening the Files tab. Values are passed through the
+      # environment: never interpolate action output into a shell command.
+      - name: Report to step summary
+        env:
+          NEW_LABELS: ${{ steps.label-the-pr.outputs.new-labels }}
+          ALL_LABELS: ${{ steps.label-the-pr.outputs.all-labels }}
+        run: |
+          {
+            printf '### Labels\n\n'
+            if [ -n "${NEW_LABELS:-}" ]; then
+              printf 'Added this run: %s\n\n' "${NEW_LABELS//,/ , }"
+            else
+              printf 'Added this run: _nothing new_\n\n'
+            fi
+            printf 'Full set: %s\n' "${ALL_LABELS//,/ , }"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,266 @@
+# GHOSTWIRE.EXE — Pull request auto-labeling rules
+#
+# Consumed by actions/labeler in .github/workflows/labeler.yml. Every label
+# name below must already exist in the repository — the live list is
+# https://github.com/zazieproductions/GHOSTWIRE.EXE/labels. The action only
+# *applies* labels, it never creates them, so an unknown name here is a
+# silently missing label (check the workflow log for "Invalid config").
+# PR #12 adds .github/labels.yml and docs/LABELS.md as the declarative
+# taxonomy; when that lands, keep the names in this file in sync with it.
+#
+# Scope of automation. The labeler can only see two things about a pull
+# request: which paths it touches and what its branches are called. It
+# therefore owns the `area:` column (which maps 1:1 onto the src/ layout) and
+# the handful of mechanical types below. Everything that needs judgement —
+# `priority:`, `bug` vs `enhancement` vs `refactor`, `performance`,
+# `accessibility`, `size:` — stays with the author and with triage: one type
+# + one area + one priority, set by a human.
+#
+# Syntax (https://github.com/actions/labeler#match-object): rules under one
+# label are AND-ed, `any:` blocks OR, globs are minimatch. Leading `!` negates.
+# If a wide PR ever produces label spam, two knobs exist at the top of this
+# file: `max-files-changed: N` (skip all file-based rules on huge PRs) and
+# `changed-files-labels-limit: N` (skip when more than N new labels would
+# apply). Both are left unset so the mapping above stays the whole story.
+
+# ── Areas — one per src/ subsystem ──────────────────────────────────────────
+"area: audio-engine":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/audio/**
+
+"area: dsp":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/dsp/**
+          - src/workers/dsp.worker.ts
+
+"area: experiments":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/components/experiments/**
+          - src/components/views/ExposureLabView.tsx
+
+"area: visualizations":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/components/visualizations/**
+
+# The app shell and everything the user can see. Deliberately broader than
+# `area: dsp`/`area: audio-engine`: a change to a view counts as UI even when
+# it also counts as something else.
+"area: ui":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/app/**
+          - src/components/common/**
+          - src/components/views/**
+          - src/App.tsx
+          - src/main.tsx
+          - src/index.css
+
+"area: workers":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/workers/**
+
+"area: sessions":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/utils/sessionStorage.ts
+          - src/app/useSessionPersistence.ts
+          - src/app/limits.ts
+
+"area: export":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/utils/exportSession.ts
+
+"area: config":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/config/**
+          - vite.config.ts
+          - vitest.config.ts
+          - playwright.config.ts
+          - tsconfig*.json
+          - index.html
+          - .gitignore
+
+"area: tests":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/**/__tests__/**
+          - src/test/**
+          - e2e/**
+
+"area: ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - scripts/**
+
+"area: docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - docs/**
+          - LICENSE
+
+# ── DSP internals ───────────────────────────────────────────────────────────
+"dsp: fft":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/dsp/fft.ts
+
+"dsp: metrics":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/dsp/metrics.ts
+
+"dsp: analysis":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/dsp/analysis.ts
+
+"dsp: synthetic":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/dsp/synthetic.ts
+          - src/dsp/__tests__/fixtures/**
+          - scripts/generate-fake-mic-noise.mjs
+
+# ── Exposure Lab experiments (pair with `area: experiments`) ────────────────
+"exp: A":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/components/experiments/ExperimentA.tsx
+          - docs/screenshots/experiment-a.png
+
+"exp: B":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/components/experiments/ExperimentB.tsx
+          - docs/screenshots/experiment-b.png
+
+"exp: C":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/components/experiments/ExperimentC.tsx
+
+"exp: D":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/components/experiments/ExperimentD.tsx
+
+"exp: E":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/components/experiments/ExperimentE.tsx
+          - docs/screenshots/experiment-e.png
+
+# ── Mechanical types — inferable from paths with no judgement required ─────
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - docs/**
+
+test:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/__tests__/**"
+          - "**/*.test.ts"
+          - "**/*.test.mjs"
+          - "**/*.spec.ts"
+          - src/test/**
+
+chore:
+  - changed-files:
+      - any-glob-to-any-file:
+          - scripts/**
+          - .gitignore
+          - LICENSE
+
+typescript:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/types/**
+          - "**/*.d.ts"
+          - tsconfig*.json
+
+# Dependencies: dependency manifests, or any PR off a bot branch. The `any:`
+# block ORs the two signals so a renovate/dependabot bump that also touches
+# code still gets the label.
+dependencies:
+  - any:
+      - changed-files:
+          - any-glob-to-any-file:
+              - package.json
+              - package-lock.json
+      - head-branch:
+          - ^dependabot
+          - ^renovate
+
+# ── Platform, privacy and research surfaces ─────────────────────────────────
+webaudio:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/audio/**
+          - src/workers/**
+
+microphone:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/audio/**
+
+"ui/ux":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/components/**
+          - src/app/**
+          - src/index.css
+
+privacy:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/utils/sessionStorage.ts
+          - src/utils/exportSession.ts
+          - src/app/useSessionPersistence.ts
+          - src/config/csp.ts
+          - SECURITY.md
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/config/csp.ts
+          - SECURITY.md
+
+# AUDIT.md carries the remediation checklist: a PR editing it is closing (or
+# re-opening) a numbered finding, which is what the `audit` label is for.
+audit:
+  - changed-files:
+      - any-glob-to-any-file:
+          - AUDIT.md
+
+# RESEARCH.md is the methods write-up, so these two travel together.
+methodology:
+  - changed-files:
+      - any-glob-to-any-file:
+          - RESEARCH.md
+
+research:
+  - changed-files:
+      - any-glob-to-any-file:
+          - RESEARCH.md
+
+# ── Triage ──────────────────────────────────────────────────────────────────
+# Every pull request gets `needs-triage`, including ones that touch paths no
+# rule above covers — a PR with zero labels reads as "nothing to review",
+# while a PR with only `needs-triage` reads as "unclassified, needs a human".
+# Maintainers remove it once the type/priority/size labels are set. It never
+# self-removes: `**` always matches.
+"needs-triage":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**"
