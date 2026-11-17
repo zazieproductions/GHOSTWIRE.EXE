@@ -1,0 +1,42 @@
+name: Roast My Codebase
+
+# Posts a code-health summary (complexity, dead exports, tracked secrets,
+# missing tests, dependency bloat) as a comment on every pull request.
+# The comment is advisory: it does not gate merges.
+#
+# https://github.com/marketplace/actions/roast-my-codebase
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: roast-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  roast:
+    name: Codebase health report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history so git-insight checks (churn, stale branches) work.
+          fetch-depth: 0
+
+      # Advisory only. A failed comment post — for example on a fork PR, where
+      # GITHUB_TOKEN is read-only — must not block the pull request.
+      # Add `fail-below: '60'` to make the health score a required gate.
+      - name: Roast and comment
+        uses: rahuldk1105/roast-my-codebase@v1
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: '.'

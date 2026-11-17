@@ -1,0 +1,40 @@
+name: Slop Scan
+
+# Verifies that every npm package named in code, docs and Markdown snippets
+# actually exists on the npm registry — a guard against slopsquatting, where
+# hallucinated package names get registered by attackers as malware.
+#
+# https://github.com/marketplace/actions/slop-scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slop-scan-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slop-scan:
+    name: Verify npm package references
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Upstream publishes the v1.0.0 tag only (no floating `v1` ref), so the
+      # action is pinned to the exact release. Bump deliberately.
+      - name: Scan for hallucinated or suspicious packages
+        uses: erayaha/slop-scan@v1.0.0
+        with:
+          directory: '.'
+          threshold: '500'
+          # "false" downgrades findings to a warning during triage.
+          fail-on-suspicious: 'true'
