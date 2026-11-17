@@ -22,6 +22,42 @@ function resetSessionDraft(state: GhostwireState): void {
   state.setActiveSessionDurationSec(0);
 }
 
+function finalizeRecordingSession(
+  state: GhostwireState,
+  notice?: string
+): void {
+  const provenance = state.sessionProvenanceRef.current;
+  if (state.recordingStateRef.current === 'idle' || !provenance) return;
+
+  const activeSec =
+    state.recordingStateRef.current === 'recording'
+      ? (Date.now() - state.sessionStartMsRef.current) / 1000
+      : 0;
+  const totalDur = state.sessionElapsedAccumSecRef.current + activeSec;
+
+  const session = buildMeasurementSession({
+    id: `sess-${Date.now().toString(36)}`,
+    name: provenance.name,
+    startedAtIso: provenance.startedAtIso,
+    endedAtIso: new Date().toISOString(),
+    durationSec: Math.max(0.1, totalDur),
+    sourceMode: provenance.sourceMode,
+    sampleRate: provenance.sampleRate,
+    fftSize: provenance.fftSize,
+    samples: state.activeSamplesRef.current,
+    framesForFingerprint: state.sessionFingerprintFramesRef.current,
+  });
+
+  state.setSavedSessions((prev) => [session, ...prev]);
+  state.setActiveSessionName(
+    `Session ${String(state.savedSessionsRef.current.length + 2).padStart(2, '0')}`
+  );
+  state.setRecordingState('idle');
+  state.sessionProvenanceRef.current = null;
+  resetSessionDraft(state);
+  if (notice) state.setSessionNotice(notice);
+}
+
 function useSettingsControls(state: GhostwireState) {
   const updateSettings = useCallback(
     (next: AppSettings) => {
@@ -160,36 +196,7 @@ function useSessionRecorder(state: GhostwireState) {
 
   const finalizeActiveSession = useCallback(
     (notice?: string) => {
-      const provenance = state.sessionProvenanceRef.current;
-      if (state.recordingStateRef.current === 'idle' || !provenance) return;
-
-      const activeSec =
-        state.recordingStateRef.current === 'recording'
-          ? (Date.now() - state.sessionStartMsRef.current) / 1000
-          : 0;
-      const totalDur = state.sessionElapsedAccumSecRef.current + activeSec;
-
-      const session = buildMeasurementSession({
-        id: `sess-${Date.now().toString(36)}`,
-        name: provenance.name,
-        startedAtIso: provenance.startedAtIso,
-        endedAtIso: new Date().toISOString(),
-        durationSec: Math.max(0.1, totalDur),
-        sourceMode: provenance.sourceMode,
-        sampleRate: provenance.sampleRate,
-        fftSize: provenance.fftSize,
-        samples: state.activeSamplesRef.current,
-        framesForFingerprint: state.sessionFingerprintFramesRef.current,
-      });
-
-      state.setSavedSessions((prev) => [session, ...prev]);
-      state.setActiveSessionName(
-        `Session ${String(state.savedSessionsRef.current.length + 2).padStart(2, '0')}`
-      );
-      state.setRecordingState('idle');
-      state.sessionProvenanceRef.current = null;
-      resetSessionDraft(state);
-      if (notice) state.setSessionNotice(notice);
+      finalizeRecordingSession(state, notice);
     },
     [state]
   );

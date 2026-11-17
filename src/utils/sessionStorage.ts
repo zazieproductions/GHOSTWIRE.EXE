@@ -14,8 +14,22 @@ export interface WriteResult {
   error: string | null;
 }
 
+const VALID_SOURCE_MODES = new Set<unknown>(['idle', 'microphone', 'synthetic']);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function hasValidSessionHeader(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.name === 'string' &&
+    typeof value.startedAtIso === 'string' &&
+    VALID_SOURCE_MODES.has(value.sourceMode) &&
+    typeof value.durationSec === 'number' &&
+    Number.isFinite(value.durationSec)
+  );
 }
 
 /**
@@ -23,19 +37,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * input: it may come from a different build, a manual edit or a corrupt write.
  */
 export function isMeasurementSession(value: unknown): value is MeasurementSession {
-  if (!isRecord(value)) return false;
-  if (typeof value.id !== 'string' || value.id.length === 0) return false;
-  if (typeof value.name !== 'string') return false;
-  if (typeof value.startedAtIso !== 'string') return false;
-  if (value.sourceMode !== 'idle' && value.sourceMode !== 'microphone' && value.sourceMode !== 'synthetic') {
+  if (!isRecord(value) || !hasValidSessionHeader(value)) return false;
+  if (!Array.isArray(value.samples)) return false;
+  if (!isRecord(value.summary) || typeof value.summary.sampleCount !== 'number') {
     return false;
   }
-  if (typeof value.durationSec !== 'number' || !Number.isFinite(value.durationSec)) return false;
-  if (!Array.isArray(value.samples)) return false;
-  if (!isRecord(value.summary)) return false;
-  if (typeof value.summary.sampleCount !== 'number') return false;
-  if (value.fingerprint !== null && !isRecord(value.fingerprint)) return false;
-  return true;
+  return value.fingerprint === null || isRecord(value.fingerprint);
 }
 
 /**

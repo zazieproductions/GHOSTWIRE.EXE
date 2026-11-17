@@ -191,6 +191,66 @@ export function buildEnvironmentalFingerprint(
   };
 }
 
+function collectIncompatibilityReasons(
+  a: EnvironmentalFingerprint,
+  b: EnvironmentalFingerprint
+): string[] {
+  const reasons: string[] = [];
+  if (a.sampleRate !== b.sampleRate) {
+    reasons.push(
+      `Sample rates differ (${a.sampleRate} Hz vs ${b.sampleRate} Hz), so the log-band edges are not aligned.`
+    );
+  }
+  if (a.fftSize !== b.fftSize) {
+    reasons.push(
+      `FFT sizes differ (${a.fftSize} vs ${b.fftSize}), so spectral resolution differs between windows.`
+    );
+  }
+  if (a.logBandCentersHz.length !== b.logBandCentersHz.length) {
+    reasons.push(
+      `Band counts differ (${a.logBandCentersHz.length} vs ${b.logBandCentersHz.length}).`
+    );
+  }
+  const energyA = a.logBandDistribution.reduce((s, v) => s + v, 0);
+  const energyB = b.logBandDistribution.reduce((s, v) => s + v, 0);
+  if (energyA <= 1e-9 || energyB <= 1e-9) {
+    reasons.push(
+      'At least one window contains no measurable spectral power, so there is no spectral evidence to compare.'
+    );
+  }
+  return reasons;
+}
+
+function fingerprintConfidenceLabel(
+  comparable: boolean,
+  minFrames: number
+): 'Low' | 'Moderate' | 'High' {
+  if (!comparable) return 'Low';
+  if (minFrames >= 60) return 'High';
+  if (minFrames >= 25) return 'Moderate';
+  return 'Low';
+}
+
+function interpretFingerprintComparison(
+  comparable: boolean,
+  incompatibilityReasons: string[],
+  cosineSimilarity: number,
+  noiseFloorDeltaDb: number
+): string {
+  if (!comparable) {
+    return `NOT COMPARABLE — no similarity score is reported. ${incompatibilityReasons.join(
+      ' '
+    )} Re-capture both windows from the same input source with the same sample rate and FFT size.`;
+  }
+  if (cosineSimilarity >= 0.92 && Math.abs(noiseFloorDeltaDb) < 4) {
+    return 'High spectral-shape alignment and comparable noise floor between the two windows. Consistent with stable ambient acoustics or similar signal sources, though NOT proof of identical physical location or hardware.';
+  }
+  if (cosineSimilarity >= 0.75) {
+    return 'Moderate spectral overlap with measurable shifts in band balance or background noise floor. Could reflect transient activity changes, HVAC cycling, microphone repositioning, or a distinct environment.';
+  }
+  return 'Substantial divergence in spectral energy distribution between Snapshot A and Snapshot B, indicating changed acoustic sources, altered room/microphone state, or different environments.';
+}
+
 export function compareFingerprints(
   a: EnvironmentalFingerprint,
   b: EnvironmentalFingerprint
@@ -235,54 +295,15 @@ export function compareFingerprints(
 
   // Two profiles are only comparable when they were measured on the same
   // analysis grid and both contain measurable spectral energy.
-  const incompatibilityReasons: string[] = [];
-  if (a.sampleRate !== b.sampleRate) {
-    incompatibilityReasons.push(
-      `Sample rates differ (${a.sampleRate} Hz vs ${b.sampleRate} Hz), so the log-band edges are not aligned.`
-    );
-  }
-  if (a.fftSize !== b.fftSize) {
-    incompatibilityReasons.push(
-      `FFT sizes differ (${a.fftSize} vs ${b.fftSize}), so spectral resolution differs between windows.`
-    );
-  }
-  if (a.logBandCentersHz.length !== b.logBandCentersHz.length) {
-    incompatibilityReasons.push(
-      `Band counts differ (${a.logBandCentersHz.length} vs ${b.logBandCentersHz.length}).`
-    );
-  }
-  const energyA = a.logBandDistribution.reduce((s, v) => s + v, 0);
-  const energyB = b.logBandDistribution.reduce((s, v) => s + v, 0);
-  if (energyA <= 1e-9 || energyB <= 1e-9) {
-    incompatibilityReasons.push(
-      'At least one window contains no measurable spectral power, so there is no spectral evidence to compare.'
-    );
-  }
+  const incompatibilityReasons = collectIncompatibilityReasons(a, b);
   const comparable = incompatibilityReasons.length === 0;
-
-  const confidenceLabel: 'Low' | 'Moderate' | 'High' = !comparable
-    ? 'Low'
-    : minFrames >= 60
-      ? 'High'
-      : minFrames >= 25
-        ? 'Moderate'
-        : 'Low';
-
-  let interpretation: string;
-  if (!comparable) {
-    interpretation = `NOT COMPARABLE — no similarity score is reported. ${incompatibilityReasons.join(
-      ' '
-    )} Re-capture both windows from the same input source with the same sample rate and FFT size.`;
-  } else if (cosineSimilarity >= 0.92 && Math.abs(noiseFloorDeltaDb) < 4) {
-    interpretation =
-      'High spectral-shape alignment and comparable noise floor between the two windows. Consistent with stable ambient acoustics or similar signal sources, though NOT proof of identical physical location or hardware.';
-  } else if (cosineSimilarity >= 0.75) {
-    interpretation =
-      'Moderate spectral overlap with measurable shifts in band balance or background noise floor. Could reflect transient activity changes, HVAC cycling, microphone repositioning, or a distinct environment.';
-  } else {
-    interpretation =
-      'Substantial divergence in spectral energy distribution between Snapshot A and Snapshot B, indicating changed acoustic sources, altered room/microphone state, or different environments.';
-  }
+  const confidenceLabel = fingerprintConfidenceLabel(comparable, minFrames);
+  const interpretation = interpretFingerprintComparison(
+    comparable,
+    incompatibilityReasons,
+    cosineSimilarity,
+    noiseFloorDeltaDb
+  );
 
   const limitations = [
     'Similarity is NOT proof of a unique physical location, room, or user identity.',
