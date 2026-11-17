@@ -106,6 +106,16 @@ function resolveTrackCapabilities(
   return previous;
 }
 
+function stopMediaStreamTracks(stream: MediaStream): void {
+  for (const track of stream.getTracks()) {
+    try {
+      track.stop();
+    } catch {
+      // ignore already stopped tracks
+    }
+  }
+}
+
 export class AcousticAudioEngine {
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
@@ -129,6 +139,13 @@ export class AcousticAudioEngine {
   private transformConfig: TransformConfig = { ...DEFAULT_TRANSFORM_CONFIG };
   private syntheticConfig: SyntheticSignalConfig | null = null;
 
+  // F2: Monotonically increasing operation token invalidated on stop, mode change
+  // and unmount. After every await we check ownership so a stale request cannot
+  // alter the current graph/state or install a track after cancellation.
+  private operationToken = 0;
+  private currentStream: MediaStream | null = null;
+  private currentMicSource: MediaStreamAudioSourceNode | null = null;
+
   private preTracker = new AdaptiveNoiseFloorTracker();
   private postTracker = new AdaptiveNoiseFloorTracker();
   private prevPreMag: Float32Array | null = null;
@@ -142,6 +159,17 @@ export class AcousticAudioEngine {
   constructor(settings: AppSettings, callbacks: AudioEngineCallbacks) {
     this.settings = settings;
     this.callbacks = callbacks;
+  }
+
+  private invalidatePendingCapture(): void {
+    this.operationToken += 1;
+    const pendingStream = this.currentStream;
+    if (pendingStream) {
+      stopMediaStreamTracks(pendingStream);
+      this.currentStream = null;
+    }
+    this.currentMicSource?.disconnect();
+    this.currentMicSource = null;
   }
 
   getMode(): InputMode {
@@ -318,6 +346,7 @@ export class AcousticAudioEngine {
     constraintsOverride?: MicConstraintPreferences
   ): Promise<boolean> {
     this.stopCapture();
+    const operation = this.operationToken;
     this.callbacks.onError(null);
 
     if (
@@ -349,17 +378,26 @@ export class AcousticAudioEngine {
         audio: requestedConstraints,
         video: false,
       });
+      if (operation !== this.operationToken) {
+        stopMediaStreamTracks(stream);
+        return false;
+      }
 
       this.stream = stream;
+      this.currentStream = stream;
       const ctx = this.ensureAudioContext();
       if (ctx.state === 'suspended') {
         await ctx.resume();
+        if (operation !== this.operationToken) return false;
       }
 
       this.buildAnalysisGraph(ctx);
       this.micSource = ctx.createMediaStreamSource(stream);
+      this.currentMicSource = this.micSource;
       // IMPORTANT: Never connect micSource to ctx.destination to avoid feedback/monitoring.
       this.micSource.connect(this.preAnalyser!);
+      this.currentStream = null;
+      this.currentMicSource = null;
 
       const track = stream.getAudioTracks()[0] ?? null;
       const actualSettings = track ? track.getSettings() : null;
@@ -393,6 +431,7 @@ export class AcousticAudioEngine {
       this.startLoop();
       return true;
     } catch (err) {
+      if (operation !== this.operationToken) return false;
       const domErr = err as DOMException | Error;
       let msg = domErr?.message || 'Failed to access microphone.';
       if (domErr?.name === 'NotAllowedError' || domErr?.name === 'PermissionDeniedError') {
@@ -460,6 +499,7 @@ export class AcousticAudioEngine {
     if (this.mode === 'microphone') {
       this.stopCapture();
     } else {
+      this.invalidatePendingCapture();
       this.stopSyntheticNodesOnly();
     }
 
@@ -539,19 +579,14 @@ export class AcousticAudioEngine {
   }
 
   stopCapture(): void {
+    this.invalidatePendingCapture();
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
 
     if (this.stream) {
-      for (const track of this.stream.getTracks()) {
-        try {
-          track.stop();
-        } catch {
-          // ignore
-        }
-      }
+      stopMediaStreamTracks(this.stream);
       this.stream = null;
     }
 

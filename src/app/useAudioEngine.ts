@@ -4,6 +4,7 @@ import {
   type AudioEngineCallbacks,
 } from '../audio/audioEngine';
 import { inferBroadActivity } from '../dsp/analysis';
+import { stripWaveform } from '../dsp/metrics';
 import type { DspFrame } from '../types/acoustic';
 import { frameToSessionSample } from '../utils/exportSession';
 import { dspWorkerClient } from '../workers/dspWorkerClient';
@@ -18,8 +19,10 @@ function recordSessionSample(state: GhostwireState, frame: DspFrame): void {
       (wallNow - state.sessionStartMsRef.current) / 1000;
     const point = frameToSessionSample(frame, elapsed);
     state.activeSamplesRef.current = [...state.activeSamplesRef.current, point];
+    // AUDIT F1: fingerprint frames must not retain raw waveform beyond the
+    // capture window. Strip PCM before caching for the session fingerprint.
     if (state.sessionFingerprintFramesRef.current.length < 180) {
-      state.sessionFingerprintFramesRef.current.push(frame);
+      state.sessionFingerprintFramesRef.current.push(stripWaveform(frame));
     }
     state.setActiveSessionDurationSec(elapsed);
     state.setActiveSamples(state.activeSamplesRef.current);
@@ -30,9 +33,11 @@ function createFrameCallback(state: GhostwireState): AudioEngineCallbacks['onFra
   return (pre, post) => {
     const now = performance.now();
 
-    // Keep rolling ~3.5s frame buffer for Experiment B & E
+    // Keep rolling ~3.5s frame buffer for Experiment B & E. Strip raw
+    // waveform from retained frames to honor the no-PCM-retention boundary
+    // (AUDIT F1). The live monitor still receives the full frame below.
     const buffer = state.recentFramesRef.current;
-    buffer.push(pre);
+    buffer.push(stripWaveform(pre));
     if (buffer.length > 90) {
       buffer.shift();
     }

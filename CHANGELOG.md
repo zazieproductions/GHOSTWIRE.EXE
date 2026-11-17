@@ -26,6 +26,9 @@ No tagged releases yet. Everything currently on `main` is unreleased.
   now below their thresholds.
 - Extracted application state, engine lifecycle, capture controls, session recording
   and workspace routing into `src/app/`.
+- Resolved `main` merge conflicts by carrying the upstream waveform-stripping
+  behavior into the new audio hook and wiring the capture-cancellation token into
+  microphone and synthetic start/stop paths.
 
 ### Fixed
 
