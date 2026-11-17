@@ -1,7 +1,25 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
+import { buildMeasurementSession } from '../utils/exportSession';
 import { contentSecurityPolicy, injectCspMeta } from '../config/csp';
+
+const STORAGE_KEY_SESSIONS = 'ghostwire.exe:sessions:v1';
+const STORAGE_KEY_CONSENT = 'ghostwire.exe:sessions:consent:v1';
+
+function storedSession() {
+  return buildMeasurementSession({
+    id: 'sess-stored',
+    name: 'Stored Session',
+    startedAtIso: '2026-11-17T00:00:00.000Z',
+    endedAtIso: '2026-11-17T00:00:01.000Z',
+    durationSec: 1,
+    sourceMode: 'synthetic',
+    sampleRate: 48000,
+    fftSize: 2048,
+    samples: [],
+  });
+}
 
 function createMockAudioContext(sampleRate = 48000) {
   let activeBuffer: Float32Array | null = null;
@@ -132,6 +150,7 @@ describe('GHOSTWIRE.EXE Privacy, Microphone Lifecycle & Synthetic Integration', 
       },
     });
 
+    // Must be constructible: the engine calls `new AudioContext()`.
     const MockAudioCtx = vi.fn(function MockAudioContext() {
       return createMockAudioContext();
     });
@@ -236,5 +255,86 @@ describe('GHOSTWIRE.EXE Privacy, Microphone Lifecycle & Synthetic Integration', 
     localStorage.setItem('ghostwire.exe:sessions:v1', '[]');
     fireEvent.click(screen.getByRole('button', { name: /CLEAR ALL SESSION DATA/i }));
     expect(localStorage.getItem('ghostwire.exe:sessions:v1')).toBeNull();
+  });
+
+  it('restores explicitly opted-in sessions after reload instead of deleting them', async () => {
+    localStorage.setItem(STORAGE_KEY_CONSENT, '1');
+    localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify([storedSession()]));
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /SESSION ANALYSIS/i }));
+    expect(
+      screen.getByText(/RECORDED FEATURE SESSIONS \(1\)/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText('Stored Session')).toBeInTheDocument();
+
+    // The opt-in survives the reload and the previously stored payload is intact.
+    fireEvent.click(screen.getByRole('button', { name: /SETTINGS/i }));
+    const persistenceToggle = screen.getAllByRole('checkbox')[0] as HTMLInputElement;
+    expect(persistenceToggle.checked).toBe(true);
+    expect(localStorage.getItem(STORAGE_KEY_SESSIONS)).not.toBeNull();
+  });
+
+  it('surfaces unreadable stored sessions without overwriting them', async () => {
+    localStorage.setItem(STORAGE_KEY_CONSENT, '1');
+    localStorage.setItem(STORAGE_KEY_SESSIONS, '{not valid json');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/could not be parsed/i);
+    });
+    expect(localStorage.getItem(STORAGE_KEY_SESSIONS)).toBe('{not valid json');
+  });
+
+  it('deletes stored sessions only on an explicit opt-out', async () => {
+    localStorage.setItem(STORAGE_KEY_CONSENT, '1');
+    localStorage.setItem(STORAGE_KEY_SESSIONS, '[]');
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /SETTINGS/i }));
+
+    const persistenceToggle = screen.getAllByRole('checkbox')[0] as HTMLInputElement;
+    expect(persistenceToggle.checked).toBe(true);
+
+    fireEvent.click(persistenceToggle);
+
+    await waitFor(() => {
+      expect(localStorage.getItem(STORAGE_KEY_SESSIONS)).toBeNull();
+    });
+    expect(localStorage.getItem(STORAGE_KEY_CONSENT)).toBeNull();
+  });
+
+  it('persists numerical features only when persistence is opted in', async () => {
+    localStorage.setItem(STORAGE_KEY_CONSENT, '1');
+    localStorage.setItem(STORAGE_KEY_SESSIONS, '[]');
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /SYNTHETIC SIGNALS/i }));
+    fireEvent.click(screen.getByRole('button', { name: /START SYNTHETIC STREAM/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/SYNTHETIC SIGNAL ACTIVE/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /SESSION ANALYSIS/i }));
+    fireEvent.click(screen.getByRole('button', { name: /START SESSION/i }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 260));
+    });
+    fireEvent.click(screen.getByRole('button', { name: /STOP & SAVE SESSION/i }));
+
+    await waitFor(() => {
+      const raw = localStorage.getItem(STORAGE_KEY_SESSIONS);
+      expect(raw).not.toBeNull();
+      expect(JSON.parse(raw as string)).toHaveLength(1);
+    });
+
+    const raw = localStorage.getItem(STORAGE_KEY_SESSIONS) as string;
+    expect(raw).not.toContain('waveform');
+    expect(raw).not.toContain('powerSpectrum');
+    expect(JSON.parse(raw)[0].samples.length).toBeGreaterThan(0);
+    expect(JSON.parse(raw)[0].sourceMode).toBe('synthetic');
   });
 });

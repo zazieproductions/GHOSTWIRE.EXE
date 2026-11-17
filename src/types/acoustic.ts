@@ -51,6 +51,22 @@ export interface DspFrame {
   powerSpectrum: Float32Array;
 }
 
+/**
+ * Frame projection that keeps only derived scalar features. It deliberately
+ * carries no time-domain PCM and no spectral arrays, so long-lived rolling
+ * buffers cannot retain raw waveform samples.
+ */
+export type ActivityFrame = Omit<
+  DspFrame,
+  'waveform' | 'spectrumDbfs' | 'powerSpectrum'
+>;
+
+/**
+ * Frame projection used for fingerprinting: derived spectra are retained,
+ * time-domain PCM is not.
+ */
+export type FeatureFrame = Omit<DspFrame, 'waveform'>;
+
 export interface ActivityClassification {
   id:
     | 'quiet'
@@ -101,8 +117,13 @@ export interface EnvironmentalFingerprint {
   /** 32 log-spaced frequency bands from 20 Hz to Nyquist, mean dBFS */
   logBandCentersHz: number[];
   logBandDbfs: number[];
-  /** Normalized spectral energy distribution across the 32 log bands (sum = 1) */
+  /**
+   * Normalized spectral energy distribution across the 32 log bands (sum = 1
+   * when measurable spectral power exists, all zeros for a silent window).
+   */
   logBandDistribution: number[];
+  /** Frames dropped because they used a different sample rate or FFT size. */
+  excludedFrameCount: number;
 }
 
 export interface FingerprintComparison {
@@ -117,6 +138,10 @@ export interface FingerprintComparison {
     highDeltaPct: number;
   };
   perBandDeltaDb: number[]; // B - A per log band
+  /** False when the windows used different grids or had no spectral evidence. */
+  comparable: boolean;
+  incompatibilityReasons: string[];
+  /** Frame-count heuristic, not a statistical confidence interval. */
   confidenceLabel: 'Low' | 'Moderate' | 'High';
   interpretation: string;
   limitations: string[];
@@ -214,8 +239,11 @@ export interface MeasurementSession {
   startedAtIso: string;
   endedAtIso: string | null;
   durationSec: number;
+  /** Input source captured when the session started, not the source at save time. */
   sourceMode: InputMode;
-  sampleRate: number;
+  /** Sample rate observed when the session started; null if none was known. */
+  sampleRate: number | null;
+  /** FFT size configured when the session started. */
   fftSize: number;
   samples: SessionSamplePoint[];
   summary: {
@@ -247,4 +275,13 @@ export interface ScientificProtocol {
   limitations: string[];
   confoundingFactors: string[];
   reproducibilityNotes: string;
+}
+
+/** Session metadata frozen when recording starts, so later source or setting changes cannot relabel it. */
+export interface SessionProvenance {
+  name: string;
+  startedAtIso: string;
+  sourceMode: InputMode;
+  sampleRate: number | null;
+  fftSize: number;
 }

@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MAX_CAPTURE_FRAMES } from '../../app/limits';
 import { EXPERIMENT_PROTOCOLS } from '../../data/protocols';
 import { buildEnvironmentalFingerprint } from '../../dsp/analysis';
-import { stripWaveform } from '../../dsp/metrics';
+import { toFeatureFrame } from '../../dsp/metrics';
 import type {
   DspFrame,
   EnvironmentalFingerprint,
+  FeatureFrame,
   FingerprintComparison,
   InputMode,
 } from '../../types/acoustic';
@@ -22,6 +23,7 @@ type CaptureSlot = 'A' | 'B';
 
 type ComparisonSetter = (value: FingerprintComparison | null) => void;
 type ComparingSetter = (value: boolean) => void;
+type ComparisonErrorSetter = (value: string | null) => void;
 
 interface ProfilePlot {
   ctx: CanvasRenderingContext2D;
@@ -181,7 +183,10 @@ function useWindowCapture(
 ) {
   const [capturingSlot, setCapturingSlot] = useState<CaptureSlot | null>(null);
   const [captureBufferCount, setCaptureBufferCount] = useState(0);
-  const captureFramesRef = useRef<DspFrame[]>([]);
+  // Derived feature frames only: no time-domain PCM is buffered here.
+  const captureFramesRef = useRef<FeatureFrame[]>([]);
+  // Provenance of the window being captured, fixed at capture start.
+  const captureModeRef = useRef<InputMode>('idle');
   const [fpA, setFpA] = useState<EnvironmentalFingerprint | null>(null);
   const [fpB, setFpB] = useState<EnvironmentalFingerprint | null>(null);
 
@@ -202,8 +207,8 @@ function useWindowCapture(
     if (!capturingSlot || !latestFrame) return;
     // AUDIT F8: bound the short A/B capture buffer.
     if (captureFramesRef.current.length >= MAX_CAPTURE_FRAMES) return;
-    // AUDIT F1: fingerprinting needs spectral features, not raw PCM.
-    captureFramesRef.current.push(stripWaveform(latestFrame));
+    // AUDIT F1: fingerprinting keeps spectral features only, never PCM.
+    captureFramesRef.current.push(toFeatureFrame(latestFrame));
     setCaptureBufferCount(captureFramesRef.current.length);
   }, [capturingSlot, latestFrame]);
 
@@ -211,17 +216,18 @@ function useWindowCapture(
     if (!capturingSlot) return;
     const frames = captureFramesRef.current;
     const slot = capturingSlot;
+    const sourceMode = captureModeRef.current;
     setCapturingSlot(null);
     clearCaptureBuffer();
     if (frames.length === 0) return;
     const fp = buildEnvironmentalFingerprint(
       frames,
-      `Window ${slot} (${mode})`,
-      mode
+      `Window ${slot} (${sourceMode})`,
+      sourceMode
     );
     if (slot === 'A') setFpA(fp);
     else setFpB(fp);
-  }, [capturingSlot, mode, clearCaptureBuffer]);
+  }, [capturingSlot, clearCaptureBuffer]);
 
   useEffect(() => {
     if (mode === 'idle' && capturingSlot) {
@@ -233,6 +239,7 @@ function useWindowCapture(
     (slot: CaptureSlot) => {
       if (mode === 'idle') return;
       clearCaptureBuffer();
+      captureModeRef.current = mode;
       setCapturingSlot(slot);
       // Clear the comparison and the window being replaced so a failed or
       // in-flight worker request cannot leave a stale result visible (AUDIT F9).
@@ -265,13 +272,15 @@ function useFingerprintComparison(
   fpA: EnvironmentalFingerprint | null,
   fpB: EnvironmentalFingerprint | null,
   setComparison: ComparisonSetter,
-  setComparing: ComparingSetter
+  setComparing: ComparingSetter,
+  setComparisonError: ComparisonErrorSetter
 ): void {
   const requestIdRef = useRef(0);
   const runComparison = useCallback(async () => {
     if (!fpA || !fpB) return;
     const requestId = ++requestIdRef.current;
     setComparison(null);
+    setComparisonError(null);
     setComparing(true);
     try {
       const res = await dspWorkerClient.compareFingerprints(fpA, fpB);
@@ -283,10 +292,13 @@ function useFingerprintComparison(
       // stale result visible (AUDIT F9).
       console.error('[ExperimentA] fingerprint comparison failed:', err);
       setComparison(null);
+      setComparisonError(
+        err instanceof Error ? err.message : 'Fingerprint comparison failed.'
+      );
     } finally {
       if (requestId === requestIdRef.current) setComparing(false);
     }
-  }, [fpA, fpB, setComparison, setComparing]);
+  }, [fpA, fpB, setComparison, setComparing, setComparisonError]);
 
   useEffect(() => {
     if (fpA && fpB) {
@@ -317,7 +329,9 @@ function buildLiveObservations(
   }
   if (comparison) {
     liveObs.push(
-      `Cosine Similarity ${(comparison.cosineSimilarity * 100).toFixed(1)}%, Spectral RMSE ${comparison.spectralDistanceDb.toFixed(1)} dB, Noise Floor Δ ${signed(comparison.noiseFloorDeltaDb, 1)} dB`
+      comparison.comparable
+        ? `Cosine Similarity ${(comparison.cosineSimilarity * 100).toFixed(1)}%, Spectral RMSE ${comparison.spectralDistanceDb.toFixed(1)} dB, Noise Floor Δ ${signed(comparison.noiseFloorDeltaDb, 1)} dB`
+        : `NOT COMPARABLE — ${comparison.incompatibilityReasons.join(' ')}`
     );
   }
   return liveObs;
@@ -434,6 +448,9 @@ function WindowSummaries({
               <div className="text-[#7a9384]">Source / Frames:</div>
               <div className="text-right tabular-nums">
                 {fp.sourceMode} / {fp.frameCount} ({fp.durationSec.toFixed(1)}s)
+                {fp.excludedFrameCount > 0 && (
+                  <> · {fp.excludedFrameCount} off-grid excluded</>
+                )}
               </div>
               <div className="text-[#7a9384]">Noise Floor (10th pct):</div>
               <div className="text-right tabular-nums">{fp.noiseFloorDbfs.toFixed(1)} dBFS</div>
@@ -463,13 +480,32 @@ function WindowSummaries({
 
 function ComparisonResults({
   comparison,
+  comparisonError,
 }: {
   comparison: FingerprintComparison | null;
+  comparisonError: string | null;
 }) {
   return (
     <>
+      {comparisonError && (
+        <div
+          role="alert"
+          className="border border-[#ef4444]/60 bg-[#210c0c] text-[#fecaca] px-3 py-2 text-[11px] rounded-sm"
+        >
+          COMPARISON FAILED: {comparisonError}
+        </div>
+      )}
+      {comparison && !comparison.comparable && (
+        <div
+          role="alert"
+          className="border border-[#f59e0b]/50 bg-[#181207] text-[#fcd34d] px-3 py-2 text-[11px] rounded-sm"
+        >
+          NOT COMPARABLE — {comparison.incompatibilityReasons.join(' ')}
+        </div>
+      )}
       {comparison && (
         <div className="space-y-3">
+          {comparison.comparable && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <MetricTile
               label="Feature Similarity"
@@ -495,6 +531,7 @@ function ComparisonResults({
               subtext={`M:${signed(comparison.bandDeltas.midDeltaPct, 0)}% H:${signed(comparison.bandDeltas.highDeltaPct, 0)}%`}
             />
           </div>
+          )}
 
           <div className="panel-border rounded-sm p-3 text-xs space-y-2">
             <div className="text-[#86efac] font-semibold">INTERPRETATION &amp; EPISTEMIC BOUNDARY</div>
@@ -514,9 +551,11 @@ function ComparisonResults({
 
 export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
   const [comparison, setComparison] = useState<FingerprintComparison | null>(null);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [comparing, setComparing] = useState(false);
   const clearComparison = useCallback(() => {
     setComparison(null);
+    setComparisonError(null);
     setComparing(false);
   }, []);
   const capture = useWindowCapture(mode, latestFrame, clearComparison);
@@ -525,7 +564,8 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
     capture.fpA,
     capture.fpB,
     setComparison,
-    setComparing
+    setComparing,
+    setComparisonError
   );
 
   const liveObs = buildLiveObservations(
@@ -552,7 +592,7 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
         fpB={capture.fpB}
         comparing={comparing}
       />
-      <ComparisonResults comparison={comparison} />
+      <ComparisonResults comparison={comparison} comparisonError={comparisonError} />
       <ProtocolCard
         protocol={EXPERIMENT_PROTOCOLS.A}
         liveObservations={liveObs}

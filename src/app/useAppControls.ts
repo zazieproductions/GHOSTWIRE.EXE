@@ -2,7 +2,6 @@ import { useCallback } from 'react';
 import type {
   AppSettings,
   FrequencyScale,
-  MeasurementSession,
   MicConstraintPreferences,
   SyntheticSignalConfig,
   TransformConfig,
@@ -12,35 +11,9 @@ import type { AppControls } from './types';
 import type { GhostwireState } from './useGhostwireState';
 import {
   clearStoredSessions,
-  restoreSavedSessions,
+  disablePersistence,
+  enablePersistence,
 } from './useSessionPersistence';
-
-function createSessionFromRecording(
-  state: GhostwireState
-): MeasurementSession {
-  const totalDurationSec =
-    state.recordingState === 'recording'
-      ? state.sessionElapsedAccumSecRef.current +
-        (Date.now() - state.sessionStartMsRef.current) / 1000
-      : state.sessionElapsedAccumSecRef.current;
-
-  return buildMeasurementSession({
-    id: `sess-${Date.now().toString(36)}`,
-    name:
-      state.activeSessionName.trim() ||
-      `Session ${state.savedSessions.length + 1}`,
-    startedAtIso:
-      state.activeSamplesRef.current[0]?.timestampIso ??
-      new Date().toISOString(),
-    endedAtIso: new Date().toISOString(),
-    durationSec: Math.max(0.1, totalDurationSec),
-    sourceMode: state.mode,
-    sampleRate: state.latestFrame?.sampleRate ?? 48000,
-    fftSize: state.settings.fftSize,
-    samples: state.activeSamplesRef.current,
-    framesForFingerprint: state.sessionFingerprintFramesRef.current,
-  });
-}
 
 function resetSessionDraft(state: GhostwireState): void {
   state.activeSamplesRef.current = [];
@@ -52,13 +25,17 @@ function resetSessionDraft(state: GhostwireState): void {
 function useSettingsControls(state: GhostwireState) {
   const updateSettings = useCallback(
     (next: AppSettings) => {
+      const wasPersisting = state.settingsRef.current.persistSessionsLocally;
       state.setSettings(next);
       state.engineRef.current?.updateSettings(next);
-      if (
-        next.persistSessionsLocally &&
-        !state.settingsRef.current.persistSessionsLocally
-      ) {
-        restoreSavedSessions(state);
+
+      if (next.persistSessionsLocally && !wasPersisting) {
+        // Opt-in: write the consent marker, then restore stored sessions.
+        enablePersistence(state);
+      } else if (!next.persistSessionsLocally && wasPersisting) {
+        // Intentional opt-out is the only non-explicit-clear path that
+        // deletes stored data.
+        disablePersistence(state);
       }
     },
     [state]
@@ -165,38 +142,100 @@ function useSessionRecorder(state: GhostwireState) {
     state.sessionElapsedAccumSecRef.current = 0;
     state.sessionStartMsRef.current = Date.now();
     state.lastSessionSampleMsRef.current = 0;
+    // Freeze provenance now; later source or FFT changes cannot relabel this run.
+    state.sessionProvenanceRef.current = {
+      name:
+        state.activeSessionName.trim() ||
+        `Session ${state.savedSessionsRef.current.length + 1}`,
+      startedAtIso: new Date().toISOString(),
+      sourceMode: state.mode,
+      sampleRate: state.latestFrame?.sampleRate ?? null,
+      fftSize: state.settingsRef.current.fftSize,
+    };
     state.setActiveSamples([]);
     state.setActiveSessionDurationSec(0);
+    state.setSessionNotice(null);
     state.setRecordingState('recording');
   }, [state]);
+
+  const finalizeActiveSession = useCallback(
+    (notice?: string) => {
+      const provenance = state.sessionProvenanceRef.current;
+      if (state.recordingStateRef.current === 'idle' || !provenance) return;
+
+      const activeSec =
+        state.recordingStateRef.current === 'recording'
+          ? (Date.now() - state.sessionStartMsRef.current) / 1000
+          : 0;
+      const totalDur = state.sessionElapsedAccumSecRef.current + activeSec;
+
+      const session = buildMeasurementSession({
+        id: `sess-${Date.now().toString(36)}`,
+        name: provenance.name,
+        startedAtIso: provenance.startedAtIso,
+        endedAtIso: new Date().toISOString(),
+        durationSec: Math.max(0.1, totalDur),
+        sourceMode: provenance.sourceMode,
+        sampleRate: provenance.sampleRate,
+        fftSize: provenance.fftSize,
+        samples: state.activeSamplesRef.current,
+        framesForFingerprint: state.sessionFingerprintFramesRef.current,
+      });
+
+      state.setSavedSessions((prev) => [session, ...prev]);
+      state.setActiveSessionName(
+        `Session ${String(state.savedSessionsRef.current.length + 2).padStart(2, '0')}`
+      );
+      state.setRecordingState('idle');
+      state.sessionProvenanceRef.current = null;
+      resetSessionDraft(state);
+      if (notice) state.setSessionNotice(notice);
+    },
+    [state]
+  );
+
+  // Let the audio-engine mode-change handler auto-finalise a recording when
+  // the capture source changes, using the same finalisation path.
+  state.finalizeSessionRef.current = finalizeActiveSession;
 
   const pauseToggle = useCallback(() => {
     if (state.recordingState === 'recording') {
       state.sessionElapsedAccumSecRef.current +=
         (Date.now() - state.sessionStartMsRef.current) / 1000;
+      state.sessionStartMsRef.current = Date.now();
       state.setRecordingState('paused');
     } else if (state.recordingState === 'paused') {
+      const provenance = state.sessionProvenanceRef.current;
+      if (
+        state.mode === 'idle' ||
+        !provenance ||
+        provenance.sourceMode !== state.mode
+      ) {
+        finalizeActiveSession(
+          'Session finalised: resuming requires the same input source it was started with.'
+        );
+        return;
+      }
       state.sessionStartMsRef.current = Date.now();
       state.setRecordingState('recording');
     }
-  }, [state]);
+  }, [state, finalizeActiveSession]);
 
   const stopSession = useCallback(() => {
-    if (state.recordingState === 'idle') return;
-    const session = createSessionFromRecording(state);
-    state.setSavedSessions((prev) => [session, ...prev]);
-    state.setActiveSessionName(
-      `Session ${String(state.savedSessions.length + 2).padStart(2, '0')}`
-    );
-    state.setRecordingState('idle');
-    resetSessionDraft(state);
-  }, [state]);
+    finalizeActiveSession();
+  }, [finalizeActiveSession]);
 
   const clearAllSessionData = useCallback(() => {
     state.setRecordingState('idle');
-    resetSessionDraft(state);
+    state.sessionProvenanceRef.current = null;
+    state.activeSamplesRef.current = [];
+    state.sessionFingerprintFramesRef.current = [];
+    state.recentFramesRef.current = [];
+    state.setActiveSamples([]);
+    state.setActiveSessionDurationSec(0);
+    state.setSessionNotice(null);
     state.setSavedSessions([]);
-    clearStoredSessions();
+    clearStoredSessions(state);
   }, [state]);
 
   return { startSession, pauseToggle, stopSession, clearAllSessionData };

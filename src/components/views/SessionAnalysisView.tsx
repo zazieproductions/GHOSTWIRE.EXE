@@ -23,6 +23,7 @@ interface SessionAnalysisViewProps {
   activeSamples: SessionSamplePoint[];
   savedSessions: MeasurementSession[];
   persistLocally: boolean;
+  sessionNotice: string | null;
   onChangeSessionName: (name: string) => void;
   onStartSession: () => void;
   onPauseToggle: () => void;
@@ -79,10 +80,14 @@ function useSessionComparison(
   savedSessions: MeasurementSession[],
   selectedIdA: string,
   selectedIdB: string
-): SessionComparisonResult | null {
+): {
+  comparison: SessionComparisonResult | null;
+  comparisonError: string | null;
+} {
   const [comparison, setComparison] = useState<SessionComparisonResult | null>(
     null
   );
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -90,21 +95,28 @@ function useSessionComparison(
     const sessB = savedSessions.find((s) => s.id === selectedIdB);
     setComparison(null);
     if (!sessA || !sessB) {
+      setComparisonError(null);
       return () => {
         active = false;
       };
     }
+    // Ignore results from a stale selection and surface worker failures
+    // instead of leaving an unhandled rejection.
+    setComparisonError(null);
     void dspWorkerClient
       .compareSessions(sessA, sessB)
       .then((result) => {
         if (active) setComparison(result);
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         if (!active) return;
         // Surface worker / session comparison failures without leaving a
         // stale result visible (AUDIT F9).
         console.error('[SessionAnalysisView] session comparison failed:', err);
         setComparison(null);
+        setComparisonError(
+          err instanceof Error ? err.message : 'Session comparison failed.'
+        );
       });
     return () => {
       // A newer selection invalidates an in-flight comparison response.
@@ -112,7 +124,7 @@ function useSessionComparison(
     };
   }, [savedSessions, selectedIdA, selectedIdB]);
 
-  return comparison;
+  return { comparison, comparisonError };
 }
 
 function selectPreviewSamples(
@@ -507,6 +519,7 @@ function ComparisonMetrics({
   comparison: SessionComparisonResult;
 }) {
   const fingerprint = comparison.fingerprintComparison;
+  const comparable = fingerprint ? fingerprint.comparable : true;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
       <MetricTile
@@ -526,13 +539,21 @@ function ComparisonMetrics({
       />
       <MetricTile
         label="Spectral Similarity"
-        value={fingerprint
-          ? `${(fingerprint.cosineSimilarity * 100).toFixed(1)}%`
-          : 'N/A'}
-        accent={fingerprint && fingerprint.cosineSimilarity >= 0.85 ? 'green' : 'amber'}
-        subtext={fingerprint
-          ? `RMSE ${fingerprint.spectralDistanceDb.toFixed(1)} dB`
-          : undefined}
+        value={
+          fingerprint && comparable
+            ? `${(fingerprint.cosineSimilarity * 100).toFixed(1)}%`
+            : 'N/A'
+        }
+        accent={
+          fingerprint && comparable && fingerprint.cosineSimilarity >= 0.85
+            ? 'green'
+            : 'amber'
+        }
+        subtext={
+          fingerprint && comparable
+            ? `RMSE ${fingerprint.spectralDistanceDb.toFixed(1)} dB`
+            : 'Grids not comparable'
+        }
       />
     </div>
   );
@@ -543,6 +564,7 @@ function SessionComparisonPanel({
   selectedIdA,
   selectedIdB,
   comparison,
+  comparisonError,
   setSelectedIdA,
   setSelectedIdB,
 }: {
@@ -550,6 +572,7 @@ function SessionComparisonPanel({
   selectedIdA: string;
   selectedIdB: string;
   comparison: SessionComparisonResult | null;
+  comparisonError: string | null;
   setSelectedIdA: (value: string) => void;
   setSelectedIdB: (value: string) => void;
 }) {
@@ -560,6 +583,22 @@ function SessionComparisonPanel({
           <div className="text-xs font-semibold text-[#86efac] tracking-wider">
             LOCAL SESSION COMPARISON (COMPUTED OFF-THREAD IN DSP WORKER)
           </div>
+
+          {comparisonError && (
+            <div
+              role="alert"
+              className="border border-[#ef4444]/60 bg-[#210c0c] text-[#fecaca] px-3 py-2 text-[11px] rounded-sm"
+            >
+              COMPARISON FAILED: {comparisonError}
+            </div>
+          )}
+
+          {comparison?.fingerprintComparison &&
+            !comparison.fingerprintComparison.comparable && (
+              <div className="border border-[#f59e0b]/50 bg-[#181207] text-[#fcd34d] px-3 py-2 text-[11px] rounded-sm">
+                Spectral similarity is not reported: {comparison.fingerprintComparison.incompatibilityReasons.join(' ')}
+              </div>
+            )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <SessionSelector
               label="Baseline Session A"
@@ -590,6 +629,7 @@ export function SessionAnalysisView({
   activeSamples,
   savedSessions,
   persistLocally,
+  sessionNotice,
   onChangeSessionName,
   onStartSession,
   onPauseToggle,
@@ -597,7 +637,7 @@ export function SessionAnalysisView({
   onClearAllSessions,
 }: SessionAnalysisViewProps) {
   const selection = useSessionSelection(savedSessions);
-  const comparison = useSessionComparison(
+  const { comparison, comparisonError } = useSessionComparison(
     savedSessions,
     selection.selectedIdA,
     selection.selectedIdB
@@ -614,6 +654,14 @@ export function SessionAnalysisView({
         persistLocally={persistLocally}
         onClearAllSessions={onClearAllSessions}
       />
+      {sessionNotice && (
+        <div
+          role="status"
+          className="border border-[#f59e0b]/50 bg-[#181207] text-[#fcd34d] px-3 py-2 text-[11px] rounded-sm flex items-start justify-between gap-3"
+        >
+          <span>{sessionNotice}</span>
+        </div>
+      )}
       <SessionRecorderControls
         mode={mode}
         recordingState={recordingState}
@@ -632,6 +680,7 @@ export function SessionAnalysisView({
         selectedIdA={selection.selectedIdA}
         selectedIdB={selection.selectedIdB}
         comparison={comparison}
+        comparisonError={comparisonError}
         setSelectedIdA={selection.setSelectedIdA}
         setSelectedIdB={selection.setSelectedIdB}
       />
