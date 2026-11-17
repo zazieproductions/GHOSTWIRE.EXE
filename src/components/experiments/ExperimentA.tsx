@@ -48,7 +48,11 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
     captureFramesRef.current = [];
     setCaptureBufferCount(0);
     setCapturingSlot(slot);
+    // Reset comparison state on new capture so a previous result is not shown
+    // as current after a fresh capture (AUDIT F9).
     setComparison(null);
+    setFpA(null);
+    setFpB(null);
   };
 
   const finishCapture = () => {
@@ -72,6 +76,12 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
     try {
       const res = await dspWorkerClient.compareFingerprints(fpA, fpB);
       setComparison(res);
+    } catch (err) {
+      // Surface worker / fingerprint comparison failures without leaving a
+      // stale result (AUDIT F9). The UI can still show the last successful
+      // comparison; a fresh comparison will overwrite it.
+      console.error('[ExperimentA] fingerprint comparison failed:', err);
+      setComparison(null);
     } finally {
       setComparing(false);
     }

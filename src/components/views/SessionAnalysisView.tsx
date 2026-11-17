@@ -67,7 +67,15 @@ export function SessionAnalysisView({
       setComparison(null);
       return;
     }
-    void dspWorkerClient.compareSessions(sessA, sessB).then(setComparison);
+    void dspWorkerClient
+        .compareSessions(sessA, sessB)
+        .then(setComparison)
+        .catch((err) => {
+          // Surface worker / session comparison failures without leaving a
+          // stale result visible (AUDIT F9).
+          console.error('[SessionAnalysisView] session comparison failed:', err);
+          setComparison(null);
+        });
   }, [savedSessions, selectedIdA, selectedIdB]);
 
   // Draw timeline of active or selected session

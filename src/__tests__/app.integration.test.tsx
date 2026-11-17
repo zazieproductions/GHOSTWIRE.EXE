@@ -111,7 +111,7 @@ describe('GHOSTWIRE.EXE Privacy, Microphone Lifecycle & Synthetic Integration', 
       },
     });
 
-    const MockAudioCtx = vi.fn(() => createMockAudioContext());
+    const MockAudioCtx = vi.fn(function () { return createMockAudioContext(); });
     Object.defineProperty(window, 'AudioContext', {
       configurable: true,
       writable: true,

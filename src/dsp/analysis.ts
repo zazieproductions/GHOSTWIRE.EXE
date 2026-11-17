@@ -77,13 +77,17 @@ export function buildEnvironmentalFingerprint(
     sumMid += f.bandEnergy.midRatio;
     sumHigh += f.bandEnergy.highRatio;
 
-    // Accumulate power into 32 log bands
+    // Accumulate power into 32 log bands.
+    // Bands are non-overlapping: each bin contributes to exactly one band.
+    // The boundary bin (the one containing highHz) is assigned to band b, and
+    // band b+1 starts at the next bin so there is no double-counting.
     for (let b = 0; b < LOG_BAND_COUNT; b++) {
       const { lowHz, highHz } = bandEdges[b];
       const startBin = Math.max(1, Math.floor(lowHz / binWidth));
+      // endBin is inclusive; assign the boundary bin to this band only.
       const endBin = Math.min(
         f.powerSpectrum.length - 1,
-        Math.max(startBin, Math.ceil(highHz / binWidth))
+        Math.max(startBin, Math.floor(highHz / binWidth))
       );
       let bandSum = 0;
       for (let k = startBin; k <= endBin; k++) {
@@ -299,45 +303,82 @@ export function inferBroadActivity(
   }
   const domFreqCv = meanDomFreq > 20 ? domFreqStd / meanDomFreq : 1;
 
-  // Envelope periodicity via normalized autocorrelation on linear RMS envelope
+  // Envelope periodicity via normalized autocorrelation on linear RMS envelope.
+  // Uses per-frame timestamps so dropped/jittered frames don't bias the lag→Hz
+  // mapping (AUDIT F6). Gaps larger than ~3× the median inter-frame interval are
+  // treated as segment boundaries: the envelope is split there and only the
+  // longest continuous segment is analyzed.
   let detectedPeriodHz: number | null = null;
   let periodicityStrength = 0;
   if (n >= 24 && windowDurationSec >= 0.8) {
-    const dt = windowDurationSec / (n - 1);
-    const rmsArr = frames.map((f) => f.rms);
-    const meanRms = rmsArr.reduce((a, b) => a + b, 0) / n;
-    const centered = rmsArr.map((v) => v - meanRms);
-    let zeroLag = 0;
-    for (let i = 0; i < n; i++) zeroLag += centered[i] * centered[i];
+    const timestamps = frames.map((f) => f.timestampMs);
+    // Median inter-frame interval in ms (robust to a few drops).
+    const diffs = new Array<number>(n - 1);
+    for (let i = 1; i < n; i++) diffs[i - 1] = timestamps[i] - timestamps[i - 1];
+    diffs.sort((a, b) => a - b);
+    const medianDtMs =
+      diffs.length > 0 ? diffs[Math.floor(diffs.length / 2)] : windowDurationSec * 1000 / (n - 1);
 
-    const rmsStd = Math.sqrt(zeroLag / n);
-    // Require meaningful amplitude modulation above noise floor
-    if (zeroLag > 1e-10 && rmsStd > meanRms * 0.12) {
-      const minLag = Math.max(2, Math.floor(0.08 / dt)); // up to ~12.5 Hz
-      const maxLag = Math.min(Math.floor(n * 0.6), Math.ceil(1.5 / dt)); // down to ~0.67 Hz
-      let bestLag = -1;
-      let bestCorr = 0;
-
-      for (let lag = minLag; lag <= maxLag; lag++) {
-        let num = 0;
-        let denA = 0;
-        let denB = 0;
-        for (let i = 0; i < n - lag; i++) {
-          num += centered[i] * centered[i + lag];
-          denA += centered[i] * centered[i];
-          denB += centered[i + lag] * centered[i + lag];
-        }
-        const den = Math.sqrt(denA * denB);
-        const corr = den > 1e-12 ? num / den : 0;
-        if (corr > bestCorr) {
-          bestCorr = corr;
-          bestLag = lag;
-        }
+    // Split into continuous segments separated by gaps > 3× median interval.
+    const gapThresholdMs = Math.max(medianDtMs * 3, 50);
+    const segments: Array<{ start: number; end: number }> = [];
+    let segStart = 0;
+    for (let i = 1; i < n; i++) {
+      if (timestamps[i] - timestamps[i - 1] > gapThresholdMs) {
+        if (i - segStart >= 24) segments.push({ start: segStart, end: i });
+        segStart = i;
       }
+    }
+    if (n - segStart >= 24) segments.push({ start: segStart, end: n });
 
-      periodicityStrength = Math.max(0, bestCorr);
-      if (bestLag > 0 && bestCorr >= 0.42) {
-        detectedPeriodHz = 1 / (bestLag * dt);
+    // Analyze the longest segment.
+    let bestSeg: { start: number; end: number } | null = null;
+    for (const seg of segments) {
+      if (!bestSeg || seg.end - seg.start > bestSeg.end - bestSeg.start) {
+        bestSeg = seg;
+      }
+    }
+    if (bestSeg) {
+      const s = bestSeg.start;
+      const e = bestSeg.end;
+      const segN = e - s;
+      const segDurSec = (timestamps[e - 1] - timestamps[s]) / 1000;
+      const dt = segDurSec / (segN - 1);
+      const rmsArr = frames.slice(s, e).map((f) => f.rms);
+      const meanRms = rmsArr.reduce((a, b) => a + b, 0) / segN;
+      const centered = rmsArr.map((v) => v - meanRms);
+      let zeroLag = 0;
+      for (let i = 0; i < segN; i++) zeroLag += centered[i] * centered[i];
+
+      const rmsStd = Math.sqrt(zeroLag / segN);
+      // Require meaningful amplitude modulation above noise floor
+      if (zeroLag > 1e-10 && rmsStd > meanRms * 0.12) {
+        const minLag = Math.max(2, Math.floor(0.08 / dt)); // up to ~12.5 Hz
+        const maxLag = Math.min(Math.floor(segN * 0.6), Math.ceil(1.5 / dt)); // down to ~0.67 Hz
+        let bestLag = -1;
+        let bestCorr = 0;
+
+        for (let lag = minLag; lag <= maxLag; lag++) {
+          let num = 0;
+          let denA = 0;
+          let denB = 0;
+          for (let i = 0; i < segN - lag; i++) {
+            num += centered[i] * centered[i + lag];
+            denA += centered[i] * centered[i];
+            denB += centered[i + lag] * centered[i + lag];
+          }
+          const den = Math.sqrt(denA * denB);
+          const corr = den > 1e-12 ? num / den : 0;
+          if (corr > bestCorr) {
+            bestCorr = corr;
+            bestLag = lag;
+          }
+        }
+
+        periodicityStrength = Math.max(0, bestCorr);
+        if (bestLag > 0 && bestCorr >= 0.42) {
+          detectedPeriodHz = 1 / (bestLag * dt);
+        }
       }
     }
   }
