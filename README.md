@@ -255,6 +255,10 @@ When changing a metric, update its implementation in `src/dsp/`, its tests in `s
 
 The [technical audit](./AUDIT.md) documents the current privacy, measurement and reliability findings, with evidence and a prioritized [remediation checklist](./AUDIT.md#remediation-checklist) for tracking proposed changes. The P0 findings (raw-waveform retention and capture cancellation races) and the persistence, band-comparability and CSV-export findings are implemented and covered by regression tests; the audit records the status of every item.
 
+### Labels
+
+Issues and pull requests use a 60-label taxonomy (type, priority, area, DSP, experiments A–E, platform, workflow, effort). See [docs/LABELS.md](./docs/LABELS.md) for the full guide and [`.github/labels.yml`](./.github/labels.yml) for the declarative source of truth; re-create missing labels with `bash scripts/sync-labels.sh`.
+
 ### Automated checks
 
 Five GitHub Actions run alongside the commands above:
