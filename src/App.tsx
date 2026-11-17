@@ -132,7 +132,7 @@ export default function App() {
             // F8: cap session samples at ~1 hour at 5 Hz (18000 samples).
             // Beyond this, append is skipped rather than growing unbounded.
             if (activeSamplesRef.current.length < 18000) {
-              activeSamplesRef.current = [...activeSamplesRef.current, pt];
+              activeSamplesRef.current.push(pt);
             }
             // F1: fingerprint frames must not retain raw waveform beyond the
             // capture window. Strip PCM before caching for the session fingerprint.
