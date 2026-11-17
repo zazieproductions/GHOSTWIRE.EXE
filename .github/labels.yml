@@ -1,0 +1,222 @@
+# GHOSTWIRE.EXE — Label taxonomy (declarative source of truth)
+#
+# This file mirrors the labels that exist on GitHub. It is the canonical
+# definition for review and for re-creating labels from scratch.
+#
+# Sync (idempotent — creates missing labels, updates nothing else):
+#   bash scripts/sync-labels.sh
+# or manually:
+#   gh label create "<name>" --color "<hex>" --description "<text>"
+#
+# Color convention:
+#   red/dark-red  bug, security, audit, priority: critical/high, regression, microphone
+#   orange        performance, priority: high, size: L
+#   yellow        refactor, chore, priority: medium, browser-compat, area: sessions, size: M
+#   green         research, area: dsp, dsp: fft, priority: low, size: S, help wanted
+#   blue          documentation, typescript, area: workers/docs, area: export, dependencies
+#   deep blue     area: audio-engine, area: ci, webaudio, test, dsp: metrics
+#   purple        privacy, methodology, good first issue, area: experiments, dsp: synthetic,
+#                 exp: A–E, dsp: analysis, question
+#   pink          accessibility, ui/ux, area: ui, area: visualizations
+#   gray          duplicate, invalid, needs-*, wontfix, blocked, breaking-change
+#
+# See docs/LABELS.md for the full guide: when to apply each label,
+# how to combine them, and triage workflow.
+
+# ── GitHub defaults (kept as-is) ─────────────────────────────────────────────
+- name: accessibility
+  color: "f143ab"
+  description: "Barrier affecting people with disabilities"
+- name: bug
+  color: "d73a4a"
+  description: "Something isn't working"
+- name: dependencies
+  color: "0366d6"
+  description: "Pull requests that update a dependency file"
+- name: documentation
+  color: "0075ca"
+  description: "Improvements or additions to documentation"
+- name: duplicate
+  color: "cfd3d7"
+  description: "This issue or pull request already exists"
+- name: enhancement
+  color: "a2eeef"
+  description: "New feature or request"
+- name: good first issue
+  color: "7057ff"
+  description: "Good for newcomers"
+- name: help wanted
+  color: "008672"
+  description: "Extra attention is needed"
+- name: invalid
+  color: "e4e669"
+  description: "This doesn't seem right"
+- name: javascript
+  color: "168700"
+  description: "Pull requests that update javascript code"
+- name: question
+  color: "d876e3"
+  description: "Further information is requested"
+- name: wontfix
+  color: "ffffff"
+  description: "This will not be worked on"
+
+# ── Type / nature ───────────────────────────────────────────────────────────
+- name: research
+  color: "0e8a16"
+  description: "Methodology, DSP theory, or experiment design"
+- name: refactor
+  color: "fbca04"
+  description: "Code health, decomposition, or complexity reduction"
+- name: chore
+  color: "c5def5"
+  description: "Maintenance, tooling, or housekeeping"
+- name: test
+  color: "1d76db"
+  description: "Tests, fixtures, coverage, or E2E validation"
+- name: performance
+  color: "ff9f1c"
+  description: "Performance, memory, rendering, or FFT speed"
+- name: security
+  color: "b60205"
+  description: "Security, CSP, or privacy-boundary vulnerability"
+- name: privacy
+  color: "5319e7"
+  description: "Consent, data retention, persistence, or export sensitivity"
+- name: ui/ux
+  color: "e99695"
+  description: "Views, layout, styling, or user experience"
+- name: breaking-change
+  color: "0c0c0c"
+  description: "Incompatible API, format, or behavior change"
+- name: regression
+  color: "d93f0b"
+  description: "Previously working behavior that broke"
+
+# ── Priority (pick exactly one) ─────────────────────────────────────────────
+- name: "priority: critical"
+  color: "8b0000"
+  description: "P0 — privacy/security, data loss, or mic leak; fix immediately"
+- name: "priority: high"
+  color: "d93f0b"
+  description: "P1 — major impact, workaround exists"
+- name: "priority: medium"
+  color: "fbca04"
+  description: "P2 — moderate impact"
+- name: "priority: low"
+  color: "c2e0c6"
+  description: "P3 — polish, minor, or nice-to-have"
+
+# ── Area / component (pick one or two; maps to src/) ────────────────────────
+- name: "area: audio-engine"
+  color: "1d76db"
+  description: "src/audio — Web Audio graph, capture lifecycle, getUserMedia"
+- name: "area: dsp"
+  color: "0e8a16"
+  description: "src/dsp — FFT, metrics, analysis, synthetic signals"
+- name: "area: experiments"
+  color: "5319e7"
+  description: "Experiments A–E and Exposure Lab"
+- name: "area: visualizations"
+  color: "d876e3"
+  description: "Waveform, spectrum, and spectrogram canvases"
+- name: "area: ui"
+  color: "e99695"
+  description: "App shell, views, and components"
+- name: "area: workers"
+  color: "0075ca"
+  description: "Web Workers, comparison, and sync fallback"
+- name: "area: sessions"
+  color: "fbca04"
+  description: "Session recording, persistence, and limits"
+- name: "area: export"
+  color: "0366d6"
+  description: "CSV, JSON, and HTML export"
+- name: "area: config"
+  color: "c5def5"
+  description: "CSP, Vite config, and build"
+- name: "area: tests"
+  color: "bfd4f2"
+  description: "Vitest, Playwright, and fixtures"
+- name: "area: ci"
+  color: "0052cc"
+  description: "GitHub Actions, validation, and automation"
+- name: "area: docs"
+  color: "0075ca"
+  description: "README, RESEARCH, SECURITY, AUDIT, and changelog"
+
+# ── DSP / methodology ───────────────────────────────────────────────────────
+- name: "dsp: fft"
+  color: "0e8a16"
+  description: "FFT, Hann window, interpolation, and resolution"
+- name: "dsp: metrics"
+  color: "1d76db"
+  description: "RMS, dBFS, centroid, flatness, ZCR, crest, and bands"
+- name: "dsp: synthetic"
+  color: "5319e7"
+  description: "Synthetic signal generation and numerical checks"
+- name: "dsp: analysis"
+  color: "d876e3"
+  description: "Activity inference, fingerprint, and heuristics"
+- name: methodology
+  color: "7057ff"
+  description: "Epistemic boundaries, confounders, and validation"
+
+# ── Experiments (pick one; mirrors Exposure Lab A–E) ────────────────────────
+- name: "exp: A"
+  color: "5319e7"
+  description: "Experiment A — environmental fingerprint / similarity"
+- name: "exp: B"
+  color: "5319e7"
+  description: "Experiment B — broad activity inference"
+- name: "exp: C"
+  color: "5319e7"
+  description: "Experiment C — microphone metadata leakage"
+- name: "exp: D"
+  color: "5319e7"
+  description: "Experiment D — signal transformation / observability"
+- name: "exp: E"
+  color: "5319e7"
+  description: "Experiment E — privacy leakage demonstrator / heuristic index"
+
+# ── Platform / API ──────────────────────────────────────────────────────────
+- name: webaudio
+  color: "0052cc"
+  description: "Web Audio API, MediaDevices, or permissions"
+- name: microphone
+  color: "d93f0b"
+  description: "Microphone capture, devices, or track lifecycle"
+- name: browser-compat
+  color: "fbca04"
+  description: "Cross-browser behavior or compatibility"
+- name: typescript
+  color: "0075ca"
+  description: "TypeScript types, strictness, or type errors"
+
+# ── Workflow / triage ───────────────────────────────────────────────────────
+- name: needs-triage
+  color: "cfd3d7"
+  description: "Awaiting maintainer triage and labeling"
+- name: needs-repro
+  color: "cfd3d7"
+  description: "Needs a reproducible example or steps"
+- name: needs-info
+  color: "cfd3d7"
+  description: "Needs more information from the reporter"
+- name: blocked
+  color: "6e7781"
+  description: "Blocked by another issue, PR, or external factor"
+- name: audit
+  color: "b60205"
+  description: "From AUDIT.md findings (F1–F12)"
+
+# ── Effort (pick one) ───────────────────────────────────────────────────────
+- name: "size: S"
+  color: "c2e0c6"
+  description: "Small — well-scoped, <1 day"
+- name: "size: M"
+  color: "fbca04"
+  description: "Medium — 1–3 days, some design"
+- name: "size: L"
+  color: "d93f0b"
+  description: "Large — multi-day, architectural"

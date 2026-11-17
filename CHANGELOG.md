@@ -15,9 +15,10 @@ No tagged releases yet. Everything currently on `main` is unreleased.
 ### Added
 
 - Pull request auto-labeling (`.github/workflows/labeler.yml` with
-  `actions/labeler`): every PR is labeled from the paths it touches, using the
+  `actions/labeler` v7): every PR is labeled from the paths it touches, using the
   `area:`/`dsp:`/`exp:` taxonomy in `.github/labeler.yml`, re-checked on each
-  push, with `needs-triage` on anything the rules could not classify.
+  push with `sync-labels`, with `needs-triage` on anything the rules could not
+  classify and a `workflow_dispatch` backfill for existing pull requests.
 - Reproducible README screenshot pipeline (`npm run screenshots`): a headless-Chromium
   Playwright capture (`scripts/capture-screenshots.mjs`) against the production preview,
   with Experiment A's microphone window fed by a deterministic broadband-noise WAV
@@ -28,6 +29,11 @@ No tagged releases yet. Everything currently on `main` is unreleased.
   A/B/E and session analysis.
 - Repository automation: `slop-scan` package verification, `roast-my-codebase` pull
   request health reports, and automated changelog updates on release.
+- Repository automation: `changed-files` change detection
+  (`.github/workflows/changed-files.yml`, SHA-pinned to the action's v47.0.6 release),
+  exposed as reusable workflow outputs and a job summary. The `Validate` workflow
+  consumes the documentation-only signal to skip its code gates on docs-only changes;
+  `npm audit` still runs and manual dispatches always run the full gate.
 - Regression coverage for capture races, persistence reload/opt-out/corruption/quota,
   feature-only retention, spectral band accounting and export injection.
 - `Validate` CI workflow (`.github/workflows/validate.yml`): type-check, lint, complexity

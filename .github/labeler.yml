@@ -5,8 +5,8 @@
 # https://github.com/zazieproductions/GHOSTWIRE.EXE/labels. The action only
 # *applies* labels, it never creates them, so an unknown name here is a
 # silently missing label (check the workflow log for "Invalid config").
-# PR #12 adds .github/labels.yml and docs/LABELS.md as the declarative
-# taxonomy; when that lands, keep the names in this file in sync with it.
+# PR #12 added .github/labels.yml and docs/LABELS.md as the declarative
+# taxonomy; the names here are verified in sync with it.
 #
 # Scope of automation. The labeler can only see two things about a pull
 # request: which paths it touches and what its branches are called. It
@@ -93,6 +93,8 @@
           - src/**/__tests__/**
           - src/test/**
           - e2e/**
+          - "**/*.test.*"
+          - "**/*.spec.*"
 
 "area: ci":
   - changed-files:
@@ -163,7 +165,7 @@
 documentation:
   - changed-files:
       - any-glob-to-any-file:
-          - "*.md"
+          - "**/*.md"
           - docs/**
 
 test:
@@ -188,6 +190,13 @@ typescript:
           - src/types/**
           - "**/*.d.ts"
           - tsconfig*.json
+
+javascript:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.js"
+          - "**/*.mjs"
+          - "**/*.cjs"
 
 # Dependencies: dependency manifests, or any PR off a bot branch. The `any:`
 # block ORs the two signals so a renovate/dependabot bump that also touches

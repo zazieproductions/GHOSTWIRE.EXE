@@ -255,18 +255,23 @@ When changing a metric, update its implementation in `src/dsp/`, its tests in `s
 
 The [technical audit](./AUDIT.md) documents the current privacy, measurement and reliability findings, with evidence and a prioritized [remediation checklist](./AUDIT.md#remediation-checklist) for tracking proposed changes. The P0 findings (raw-waveform retention and capture cancellation races) and the persistence, band-comparability and CSV-export findings are implemented and covered by regression tests; the audit records the status of every item.
 
+### Labels
+
+Issues and pull requests use a 60-label taxonomy (type, priority, area, DSP, experiments A–E, platform, workflow, effort). See [docs/LABELS.md](./docs/LABELS.md) for the full guide and [`.github/labels.yml`](./.github/labels.yml) for the declarative source of truth; re-create missing labels with `bash scripts/sync-labels.sh`.
+
 ### Automated checks
 
-Four GitHub Actions run alongside the commands above:
+Five GitHub Actions run alongside the commands above:
 
 | Workflow | Trigger | Purpose |
 |:--|:--|:--|
 | [`Slop Scan`](./.github/workflows/slop-scan.yml) | push to `main`, pull requests | Verifies that every npm package named in code and documentation exists on the registry, catching slopsquatting targets. |
+| [`Changed Files`](./.github/workflows/changed-files.yml) | push to `main`, pull requests | Reports which files changed in every run and flags documentation-only diffs; pinned to the action's v47.0.6 commit SHA. |
 | [`Roast My Codebase`](./.github/workflows/roast.yml) | pull requests | Posts an advisory code-health comment (complexity, dead exports, tracked secrets, missing tests). It does not gate merges. |
-| [`Pull Request Labeler`](./.github/workflows/labeler.yml) | pull requests | Applies the [`area:`/`dsp:`/`exp:` labels](./.github/labeler.yml) implied by the paths a pull request touches, and re-checks them on every push. `needs-triage` marks anything it could not classify. |
+| [`Pull Request Labeler`](./.github/workflows/labeler.yml) | pull requests | Applies the [`area:`/`dsp:`/`exp:` labels](./.github/labeler.yml) implied by the paths a pull request touches and re-checks them on every push (`sync-labels`); `needs-triage` marks anything it could not classify. Advisory only; it does not gate merges. |
 | [`Update Changelog`](./.github/workflows/update-changelog.yml) | published releases | Prepends release notes to [`CHANGELOG.md`](./CHANGELOG.md) and advances the `Unreleased` compare link. |
 
-Only the changelog and labeler workflows request write access (`contents: write` and `pull-requests: write`); the scanning workflows run with a read-only token. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`. `npm run build` additionally fails on any function at or above the Roast critical complexity threshold (25), so critical complexity findings cannot reach a production bundle.
+The changelog workflow requests `contents: write` and the labeler requests `pull-requests: write`; the scanning workflows run with a read-only token. The [`Validate`](./.github/workflows/validate.yml) workflow consumes the Changed Files signal and skips its code gates (type-check, lint, complexity guard, tests, build) when a change touches only documentation; `npm audit` still runs, and a manual dispatch always runs the full gate. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`. `npm run build` additionally fails on any function at or above the Roast critical complexity threshold (25), so critical complexity findings cannot reach a production bundle.
 
 ## License
 
