@@ -71,6 +71,8 @@ GHOSTWIRE.EXE explores the environmental, behavioral, and hardware metadata that
 
 > [!NOTE]
 > Screenshots were captured from the production build (`npm run build && npm run preview`) in headless Chromium. The input is deterministic rather than a live room: most views run the synthetic testbench, and the microphone window in Experiment A is fed by Chromium's file-backed fake capture device (broadband noise), which is why that screenshot shows `MIC ACTIVE`. The numbers demonstrate the analysis path; they are not calibrated measurements of any environment.
+>
+> They are reproducible: `npm run screenshots` rebuilds the bundle, serves it with `vite preview`, and drives headless Chromium (Playwright, new headless mode) through the same flows, generating Experiment A's microphone input deterministically with `scripts/generate-fake-mic-noise.mjs` via `--use-file-for-fake-audio-capture`. Requires `npx playwright install chromium`; see [`docs/screenshots/README.md`](./docs/screenshots/README.md). Exact pixels vary with platform font rendering, but the UI state and analysis path are deterministic.
 
 ## Quick start
 
@@ -221,9 +223,10 @@ npm run build             # Complexity guard + TypeScript build + Vite bundle
 npm run preview           # Serve dist/ (0.0.0.0:4173)
 npx playwright install chromium
 npm run test:e2e           # Playwright against the production preview
+npm run screenshots        # Rebuild + recapture docs/screenshots/ in headless Chromium
 ```
 
-Build before running E2E: Playwright starts `npm run preview` and uses Chromium with fake microphone device and permission flags. Browser installation requires access to Playwright's browser download servers. Production assets are emitted to `dist/`; Vite uses a relative base path for static hosting. HTTPS is required for microphone capture outside localhost.
+Build before running E2E: Playwright starts `npm run preview` and uses Chromium with fake microphone device and permission flags. Browser installation requires access to Playwright's browser download servers. Screenshot capture (`npm run screenshots`) manages its own preview server and additionally feeds Experiment A's microphone window from a deterministic noise file; use `npm run screenshots:capture` to recapture against an existing `dist/` without rebuilding. Production assets are emitted to `dist/`; Vite uses a relative base path for static hosting. HTTPS is required for microphone capture outside localhost.
 
 ### Code map
 
@@ -241,7 +244,7 @@ src/
 ├── types/acoustic.ts        # Shared signal and session types
 ├── utils/exportSession.ts   # CSV, JSON and HTML exports
 └── __tests__/               # App integration tests
-scripts/                     # Deployment complexity guard
+scripts/                     # Complexity guard, screenshot capture and fake-mic noise generation
 e2e/                         # Playwright browser tests
 docs/screenshots/            # README screenshots captured from the production build
 ```
@@ -254,15 +257,16 @@ The [technical audit](./AUDIT.md) documents the current privacy, measurement and
 
 ### Automated checks
 
-Three GitHub Actions run alongside the commands above:
+Four GitHub Actions run alongside the commands above:
 
 | Workflow | Trigger | Purpose |
 |:--|:--|:--|
 | [`Slop Scan`](./.github/workflows/slop-scan.yml) | push to `main`, pull requests | Verifies that every npm package named in code and documentation exists on the registry, catching slopsquatting targets. |
 | [`Roast My Codebase`](./.github/workflows/roast.yml) | pull requests | Posts an advisory code-health comment (complexity, dead exports, tracked secrets, missing tests). It does not gate merges. |
+| [`Labeler`](./.github/workflows/labeler.yml) | pull requests | Applies path-based labels (area, DSP module, experiment, docs, tests, dependencies) from [`.github/labeler.yml`](./.github/labeler.yml). Advisory only; it does not gate merges. |
 | [`Update Changelog`](./.github/workflows/update-changelog.yml) | published releases | Prepends release notes to [`CHANGELOG.md`](./CHANGELOG.md) and advances the `Unreleased` compare link. |
 
-Only the changelog workflow requests write access (`contents: write`); the scanning workflows run with a read-only token. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`. `npm run build` additionally fails on any function at or above the Roast critical complexity threshold (25), so critical complexity findings cannot reach a production bundle.
+The changelog workflow requests `contents: write` and the labeler requests `pull-requests: write`; the scanning workflows run with a read-only token. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`. `npm run build` additionally fails on any function at or above the Roast critical complexity threshold (25), so critical complexity findings cannot reach a production bundle.
 
 ## License
 
