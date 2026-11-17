@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 function createMockAudioContext(sampleRate = 48000) {
   let activeBuffer: Float32Array | null = null;
@@ -66,6 +68,20 @@ function createMockAudioContext(sampleRate = 48000) {
     })),
   };
 }
+
+describe('GHOSTWIRE.EXE CSP & built-policy verification', () => {
+  it('embeds a restrictive CSP meta tag in the built HTML', async () => {
+    // The Vite cspPlugin injects a CSP meta tag in place of the
+    // <!-- GHOSTWIRE_CSP --> placeholder during build.
+    // Dynamic import avoids node:fs at compile time in the jsdom test env.
+    const { readFileSync } = await import('node:fs');
+    const html = readFileSync(path.resolve(__dirname, '../../dist/index.html'), 'utf8');
+    expect(html).toContain('<meta http-equiv="Content-Security-Policy"');
+    expect(html).toContain("connect-src 'none'");
+    expect(html).toContain("frame-ancestors 'none'");
+    expect(html).toContain("object-src 'none'");
+  });
+});
 
 describe('GHOSTWIRE.EXE Privacy, Microphone Lifecycle & Synthetic Integration', () => {
   let getUserMediaMock: ReturnType<typeof vi.fn>;

@@ -11,8 +11,8 @@ function cspPlugin(): Plugin {
     },
     transformIndexHtml(html) {
       const csp = isBuild
-        ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; media-src 'self' mediastream: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';"
-        : "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws: wss:; media-src 'self' mediastream: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';";
+        ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; media-src 'self' mediastream: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+        : "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws: wss:; media-src 'self' mediastream: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';";
       return html.replace(
         '<!-- GHOSTWIRE_CSP -->',
         `<meta http-equiv="Content-Security-Policy" content="${csp}" />`
