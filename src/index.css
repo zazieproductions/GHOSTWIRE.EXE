@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code',
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+      monospace;
+  }
+
+  html,
+  body {
+    background-color: #07090b;
+    color: #c9d6cd;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  input[type='range'] {
+    accent-color: #22c55e;
+  }
+
+  input[type='checkbox'] {
+    accent-color: #22c55e;
+  }
+}
+
+.panel-border {
+  border: 1px solid #1b2821;
+  background-color: #0b1013;
+}
+
+.panel-header {
+  border-bottom: 1px solid #18231d;
+  background-color: #0e1418;
+}
+
+.phosphor-glow {
+  text-shadow: 0 0 8px rgba(74, 222, 128, 0.28);
+}
+
+.amber-glow {
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.25);
+}
+
+/* Custom subtle scrollbars for dense telemetry tables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #07090b;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f2e25;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2f4739;
+}
