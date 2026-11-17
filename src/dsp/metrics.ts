@@ -267,42 +267,62 @@ export interface AnalyzeFrameOptions {
   smoothingTimeConstant?: number;
 }
 
-export function analyzeTimeDomainFrame(
+type HannSpectrum = ReturnType<typeof computeHannSpectrum>;
+
+interface ResolvedFrameOptions {
+  fftSize: number;
+  sampleRate: number;
+  timestampMs: number;
+  activityThresholdDbfs: number;
+  smoothing: number;
+}
+
+interface SmoothedSpectra {
+  smoothedMagnitude: Float32Array;
+  smoothedPower: Float32Array;
+  smoothedDbfs: Float32Array;
+}
+
+function resolveFrameOptions(
   samples: Float32Array,
   options: AnalyzeFrameOptions
-): { frame: DspFrame; smoothedMagnitude: Float32Array } {
-  const fftSize = options.fftSize ?? samples.length;
-  const sampleRate = options.sampleRate;
-  const timestampMs = options.timestampMs ?? Date.now();
-  const activityThresholdDbfs = options.activityThresholdDbfs ?? -50;
-  const smoothing = Math.min(0.95, Math.max(0, options.smoothingTimeConstant ?? 0));
+): ResolvedFrameOptions {
+  return {
+    fftSize: options.fftSize ?? samples.length,
+    sampleRate: options.sampleRate,
+    timestampMs: options.timestampMs ?? Date.now(),
+    activityThresholdDbfs: options.activityThresholdDbfs ?? -50,
+    smoothing: Math.min(0.95, Math.max(0, options.smoothingTimeConstant ?? 0)),
+  };
+}
 
-  const rms = computeRms(samples);
-  const peak = computePeak(samples);
-  const rmsDbfs = amplitudeToDbfs(rms);
-  const peakDbfs = amplitudeToDbfs(peak);
-  const crestFactorDb = peak > MIN_AMPLITUDE_FLOOR && rms > MIN_AMPLITUDE_FLOOR
+function computeCrestFactorDb(peak: number, rms: number): number {
+  return peak > MIN_AMPLITUDE_FLOOR && rms > MIN_AMPLITUDE_FLOOR
     ? 20 * Math.log10(peak / rms)
     : 0;
+}
 
-  const { zcr, zcrFrequencyHz } = computeZeroCrossingRate(samples, sampleRate);
-  const rawSpectrum = computeHannSpectrum(samples, fftSize);
-
+function buildSmoothedSpectra(
+  rawSpectrum: HannSpectrum,
+  previousMagnitude: Float32Array | null | undefined,
+  smoothing: number,
+  fftSize: number
+): SmoothedSpectra {
   const smoothedMagnitude = new Float32Array(rawSpectrum.magnitude.length);
   const smoothedPower = new Float32Array(rawSpectrum.power.length);
   const smoothedDbfs = new Float32Array(rawSpectrum.spectrumDbfs.length);
 
   if (
     smoothing > 0 &&
-    options.previousMagnitude &&
-    options.previousMagnitude.length === rawSpectrum.magnitude.length
+    previousMagnitude &&
+    previousMagnitude.length === rawSpectrum.magnitude.length
   ) {
     for (let k = 0; k < rawSpectrum.magnitude.length; k++) {
       const m =
-        smoothing * options.previousMagnitude[k] +
+        smoothing * previousMagnitude[k] +
         (1 - smoothing) * rawSpectrum.magnitude[k];
       smoothedMagnitude[k] = m;
-      const isEdge = k === 0 || k === fftSize >> 1;
+      const isEdge = k === 0 || k === (fftSize >> 1);
       smoothedPower[k] = isEdge ? m * m : 0.5 * m * m;
       smoothedDbfs[k] = amplitudeToDbfs(m);
     }
@@ -312,40 +332,89 @@ export function analyzeTimeDomainFrame(
     smoothedDbfs.set(rawSpectrum.spectrumDbfs);
   }
 
+  return { smoothedMagnitude, smoothedPower, smoothedDbfs };
+}
+
+function resolveNoiseFloorDbfs(
+  options: AnalyzeFrameOptions,
+  rmsDbfs: number
+): number {
+  return options.noiseFloorTracker
+    ? options.noiseFloorTracker.update(rmsDbfs)
+    : rmsDbfs;
+}
+
+function computeIsActive(
+  rmsDbfs: number,
+  snrDb: number,
+  activityThresholdDbfs: number
+): boolean {
+  return rmsDbfs >= activityThresholdDbfs || (snrDb >= 6 && rmsDbfs > -75);
+}
+
+export function analyzeTimeDomainFrame(
+  samples: Float32Array,
+  options: AnalyzeFrameOptions
+): { frame: DspFrame; smoothedMagnitude: Float32Array } {
+  const config = resolveFrameOptions(samples, options);
+  const rms = computeRms(samples);
+  const peak = computePeak(samples);
+  const rmsDbfs = amplitudeToDbfs(rms);
+  const peakDbfs = amplitudeToDbfs(peak);
+  const crestFactorDb = computeCrestFactorDb(peak, rms);
+
+  const { zcr, zcrFrequencyHz } = computeZeroCrossingRate(
+    samples,
+    config.sampleRate
+  );
+  const rawSpectrum = computeHannSpectrum(samples, config.fftSize);
+  const { smoothedMagnitude, smoothedPower, smoothedDbfs } =
+    buildSmoothedSpectra(
+      rawSpectrum,
+      options.previousMagnitude,
+      config.smoothing,
+      config.fftSize
+    );
+
   const dominantFrequencyHz = computeDominantFrequency(
     smoothedMagnitude,
-    sampleRate,
-    fftSize
+    config.sampleRate,
+    config.fftSize
   );
   const spectralCentroidHz = computeSpectralCentroid(
     smoothedMagnitude,
-    sampleRate,
-    fftSize
+    config.sampleRate,
+    config.fftSize
   );
   const spectralBandwidthHz = computeSpectralBandwidth(
     smoothedMagnitude,
     spectralCentroidHz,
-    sampleRate,
-    fftSize
+    config.sampleRate,
+    config.fftSize
   );
   const spectralFlatness = computeSpectralFlatness(smoothedPower);
-  const bandEnergy = computeBandEnergy(smoothedPower, sampleRate, fftSize);
+  const bandEnergy = computeBandEnergy(
+    smoothedPower,
+    config.sampleRate,
+    config.fftSize
+  );
 
-  const noiseFloorDbfs = options.noiseFloorTracker
-    ? options.noiseFloorTracker.update(rmsDbfs)
-    : rmsDbfs;
+  const noiseFloorDbfs = resolveNoiseFloorDbfs(options, rmsDbfs);
   const snrDb = Math.max(0, rmsDbfs - noiseFloorDbfs);
-  const isActive =
-    rmsDbfs >= activityThresholdDbfs || (snrDb >= 6 && rmsDbfs > -75);
+  const isActive = computeIsActive(
+    rmsDbfs,
+    snrDb,
+    config.activityThresholdDbfs
+  );
 
   const waveformCopy = new Float32Array(samples.length);
   waveformCopy.set(samples);
 
   const frame: DspFrame = {
-    timestampMs,
-    sampleRate,
-    fftSize,
-    binWidthHz: sampleRate / fftSize,
+    timestampMs: config.timestampMs,
+    sampleRate: config.sampleRate,
+    fftSize: config.fftSize,
+    binWidthHz: config.sampleRate / config.fftSize,
     rms,
     peak,
     rmsDbfs,

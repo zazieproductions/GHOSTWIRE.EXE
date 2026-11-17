@@ -28,6 +28,131 @@ function dbfsToRgb(db: number): [number, number, number] {
   return [245, Math.round(171 + t * 75), Math.round(19 + t * 140)];
 }
 
+interface SpectrogramContexts {
+  width: number;
+  offscreen: HTMLCanvasElement;
+  octx: CanvasRenderingContext2D;
+  ctx: CanvasRenderingContext2D;
+}
+
+function prepareSpectrogramContexts(
+  canvas: HTMLCanvasElement,
+  height: number,
+  offscreenRef: { current: HTMLCanvasElement | null }
+): SpectrogramContexts | null {
+  const width = canvas.clientWidth || 640;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  if (!offscreenRef.current) {
+    offscreenRef.current = document.createElement('canvas');
+  }
+  const offscreen = offscreenRef.current;
+  if (offscreen.width !== width || offscreen.height !== height) {
+    offscreen.width = width;
+    offscreen.height = height;
+    const octx = offscreen.getContext('2d');
+    if (octx) {
+      octx.fillStyle = '#06090b';
+      octx.fillRect(0, 0, width, height);
+    }
+  }
+
+  const octx = offscreen.getContext('2d');
+  const ctx = canvas.getContext('2d');
+  if (!octx || !ctx) return null;
+  return { width, offscreen, octx, ctx };
+}
+
+function drawSpectrumColumn(
+  octx: CanvasRenderingContext2D,
+  offscreen: HTMLCanvasElement,
+  frame: DspFrame,
+  width: number,
+  height: number,
+  shift: number,
+  scale: FrequencyScale
+): void {
+  // Scroll left by 2 pixels using fast GPU blit
+  octx.drawImage(offscreen, shift, 0, width - shift, height, 0, 0, width - shift, height);
+
+  const colImg = octx.createImageData(shift, height);
+  const data = colImg.data;
+  const spec = frame.spectrumDbfs;
+  const nyquist = frame.sampleRate / 2;
+  const minFreq = 20;
+
+  for (let y = 0; y < height; y++) {
+    // y=0 is top (highest freq), y=height-1 is bottom (lowest freq)
+    const normY = 1 - y / Math.max(1, height - 1);
+    let freq: number;
+    if (scale === 'log') {
+      freq = minFreq * Math.pow(nyquist / minFreq, normY);
+    } else {
+      freq = normY * nyquist;
+    }
+    const bin = Math.min(
+      spec.length - 1,
+      Math.max(1, Math.round(freq / frame.binWidthHz))
+    );
+    const [r, g, b] = dbfsToRgb(spec[bin]);
+    for (let dx = 0; dx < shift; dx++) {
+      const idx = (y * shift + dx) * 4;
+      data[idx] = r;
+      data[idx + 1] = g;
+      data[idx + 2] = b;
+      data[idx + 3] = 255;
+    }
+  }
+  octx.putImageData(colImg, width - shift, 0);
+}
+
+function drawFrequencyAxis(
+  ctx: CanvasRenderingContext2D,
+  frame: DspFrame | null,
+  height: number,
+  scale: FrequencyScale
+): void {
+  ctx.fillStyle = 'rgba(6, 9, 11, 0.72)';
+  ctx.fillRect(0, 0, 44, height);
+  ctx.fillStyle = '#86a390';
+  ctx.font = '10px monospace';
+  const nyquist = frame ? frame.sampleRate / 2 : 24000;
+  const minFreq = 20;
+  const markers = scale === 'log' ? [100, 500, 2000, 10000] : [2000, 6000, 12000, 18000];
+  for (const f of markers) {
+    if (f >= nyquist) continue;
+    const norm =
+      scale === 'log'
+        ? (Math.log10(f) - Math.log10(minFreq)) /
+          (Math.log10(nyquist) - Math.log10(minFreq))
+        : f / nyquist;
+    const y = (1 - norm) * (height - 1);
+    ctx.fillText(f >= 1000 ? `${f / 1000}k` : `${f}`, 4, Math.max(10, Math.min(height - 4, y + 3)));
+  }
+}
+
+function drawSpectrogram(
+  canvas: HTMLCanvasElement,
+  frame: DspFrame | null,
+  scale: FrequencyScale,
+  height: number,
+  offscreenRef: { current: HTMLCanvasElement | null }
+): void {
+  const contexts = prepareSpectrogramContexts(canvas, height, offscreenRef);
+  if (!contexts) return;
+  const { width, offscreen, octx, ctx } = contexts;
+
+  if (frame) {
+    drawSpectrumColumn(octx, offscreen, frame, width, height, 2, scale);
+  }
+
+  ctx.drawImage(offscreen, 0, 0);
+  drawFrequencyAxis(ctx, frame, height, scale);
+}
+
 export function SpectrogramCanvas({
   frame,
   scale = 'log',
@@ -39,86 +164,7 @@ export function SpectrogramCanvas({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const width = canvas.clientWidth || 640;
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-
-    if (!offscreenRef.current) {
-      offscreenRef.current = document.createElement('canvas');
-    }
-    const offscreen = offscreenRef.current;
-    if (offscreen.width !== width || offscreen.height !== height) {
-      offscreen.width = width;
-      offscreen.height = height;
-      const octx = offscreen.getContext('2d');
-      if (octx) {
-        octx.fillStyle = '#06090b';
-        octx.fillRect(0, 0, width, height);
-      }
-    }
-
-    const octx = offscreen.getContext('2d');
-    const ctx = canvas.getContext('2d');
-    if (!octx || !ctx) return;
-
-    if (frame) {
-      // Scroll left by 2 pixels using fast GPU blit
-      const shift = 2;
-      octx.drawImage(offscreen, shift, 0, width - shift, height, 0, 0, width - shift, height);
-
-      const colImg = octx.createImageData(shift, height);
-      const data = colImg.data;
-      const spec = frame.spectrumDbfs;
-      const nyquist = frame.sampleRate / 2;
-      const minFreq = 20;
-
-      for (let y = 0; y < height; y++) {
-        // y=0 is top (highest freq), y=height-1 is bottom (lowest freq)
-        const normY = 1 - y / Math.max(1, height - 1);
-        let freq: number;
-        if (scale === 'log') {
-          freq = minFreq * Math.pow(nyquist / minFreq, normY);
-        } else {
-          freq = normY * nyquist;
-        }
-        const bin = Math.min(
-          spec.length - 1,
-          Math.max(1, Math.round(freq / frame.binWidthHz))
-        );
-        const [r, g, b] = dbfsToRgb(spec[bin]);
-        for (let dx = 0; dx < shift; dx++) {
-          const idx = (y * shift + dx) * 4;
-          data[idx] = r;
-          data[idx + 1] = g;
-          data[idx + 2] = b;
-          data[idx + 3] = 255;
-        }
-      }
-      octx.putImageData(colImg, width - shift, 0);
-    }
-
-    ctx.drawImage(offscreen, 0, 0);
-
-    // Axis frequency labels overlay
-    ctx.fillStyle = 'rgba(6, 9, 11, 0.72)';
-    ctx.fillRect(0, 0, 44, height);
-    ctx.fillStyle = '#86a390';
-    ctx.font = '10px monospace';
-    const nyquist = frame ? frame.sampleRate / 2 : 24000;
-    const minFreq = 20;
-    const markers = scale === 'log' ? [100, 500, 2000, 10000] : [2000, 6000, 12000, 18000];
-    for (const f of markers) {
-      if (f >= nyquist) continue;
-      const norm =
-        scale === 'log'
-          ? (Math.log10(f) - Math.log10(minFreq)) /
-            (Math.log10(nyquist) - Math.log10(minFreq))
-          : f / nyquist;
-      const y = (1 - norm) * (height - 1);
-      ctx.fillText(f >= 1000 ? `${f / 1000}k` : `${f}`, 4, Math.max(10, Math.min(height - 4, y + 3)));
-    }
+    drawSpectrogram(canvas, frame, scale, height, offscreenRef);
   }, [frame, scale, height]);
 
   return (

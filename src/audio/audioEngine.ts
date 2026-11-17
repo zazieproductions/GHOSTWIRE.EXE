@@ -44,6 +44,68 @@ export interface AudioEngineCallbacks {
   onError: (message: string | null) => void;
 }
 
+
+function hasMediaDevicesSupport(): boolean {
+  return typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices);
+}
+
+function getSupportedConstraintNames(): string[] {
+  return typeof navigator.mediaDevices.getSupportedConstraints === 'function'
+    ? Object.keys(navigator.mediaDevices.getSupportedConstraints())
+    : [];
+}
+
+function withDeviceFallback(value: string, fallback: string): string {
+  return value || fallback;
+}
+
+function isRelevantAudioDevice(device: MediaDeviceInfo): boolean {
+  return device.kind === 'audioinput' || device.kind === 'audiooutput';
+}
+
+function normalizeEnumeratedDevice(
+  device: MediaDeviceInfo
+): DeviceMetadataSnapshot['devices'][number] {
+  return {
+    deviceId: withDeviceFallback(device.deviceId, '(redacted/empty)'),
+    groupId: withDeviceFallback(device.groupId, '(redacted/empty)'),
+    kind: device.kind,
+    label: withDeviceFallback(
+      device.label,
+      '(redacted prior to microphone permission)'
+    ),
+    labelRedacted: !device.label,
+  };
+}
+
+function mapEnumeratedDevices(
+  rawDevices: MediaDeviceInfo[]
+): DeviceMetadataSnapshot['devices'] {
+  return rawDevices.filter(isRelevantAudioDevice).map(normalizeEnumeratedDevice);
+}
+
+function activeAudioTrack(stream: MediaStream | null): MediaStreamTrack | null {
+  if (!stream) return null;
+  return stream.getAudioTracks()[0] ?? null;
+}
+
+function resolveTrackSettings(
+  track: MediaStreamTrack | null,
+  previous: MediaTrackSettings | null
+): MediaTrackSettings | null {
+  return track ? track.getSettings() : previous;
+}
+
+function resolveTrackCapabilities(
+  track: MediaStreamTrack | null,
+  previous: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  if (track && typeof track.getCapabilities === 'function') {
+    return track.getCapabilities() as Record<string, unknown>;
+  }
+  return previous;
+}
+
 export class AcousticAudioEngine {
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
@@ -358,7 +420,7 @@ export class AcousticAudioEngine {
   }
 
   async inspectMetadata(triggerEnumeration: boolean): Promise<DeviceMetadataSnapshot> {
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
+    if (!hasMediaDevicesSupport()) {
       this.metadata = {
         ...this.metadata,
         errorMessage: 'navigator.mediaDevices is unavailable in this environment.',
@@ -367,11 +429,7 @@ export class AcousticAudioEngine {
       return this.metadata;
     }
 
-    const supported =
-      typeof navigator.mediaDevices.getSupportedConstraints === 'function'
-        ? Object.keys(navigator.mediaDevices.getSupportedConstraints())
-        : [];
-
+    const supported = getSupportedConstraintNames();
     let devices = this.metadata.devices;
     let enumerationTriggered = this.metadata.enumerationTriggered;
 
@@ -381,28 +439,17 @@ export class AcousticAudioEngine {
     ) {
       const rawDevices = await navigator.mediaDevices.enumerateDevices();
       enumerationTriggered = true;
-      devices = rawDevices
-        .filter((d) => d.kind === 'audioinput' || d.kind === 'audiooutput')
-        .map((d) => ({
-          deviceId: d.deviceId || '(redacted/empty)',
-          groupId: d.groupId || '(redacted/empty)',
-          kind: d.kind,
-          label: d.label || '(redacted prior to microphone permission)',
-          labelRedacted: !d.label,
-        }));
+      devices = mapEnumeratedDevices(rawDevices);
     }
 
-    const track = this.stream?.getAudioTracks()[0] ?? null;
+    const track = activeAudioTrack(this.stream);
     this.metadata = {
       ...this.metadata,
       enumerationTriggered,
       supportedConstraints: supported,
       devices,
-      actualSettings: track ? track.getSettings() : this.metadata.actualSettings,
-      capabilities:
-        track && typeof track.getCapabilities === 'function'
-          ? (track.getCapabilities() as Record<string, unknown>)
-          : this.metadata.capabilities,
+      actualSettings: resolveTrackSettings(track, this.metadata.actualSettings),
+      capabilities: resolveTrackCapabilities(track, this.metadata.capabilities),
     };
     this.callbacks.onMetadataChange(this.metadata);
     return this.metadata;
