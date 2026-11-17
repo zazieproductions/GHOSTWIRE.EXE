@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
+import { contentSecurityPolicy, injectCspMeta } from '../config/csp';
 
 function createMockAudioContext(sampleRate = 48000) {
   let activeBuffer: Float32Array | null = null;
@@ -66,6 +67,26 @@ function createMockAudioContext(sampleRate = 48000) {
     })),
   };
 }
+
+describe('GHOSTWIRE.EXE CSP policy', () => {
+  it('injects restrictive directives into the built and dev HTML policies', () => {
+    // AUDIT F11: test the Vite transform directly so the gate does not depend
+    // on a previously generated dist/ directory.
+    const builtHtml = injectCspMeta('<html><!-- GHOSTWIRE_CSP --></html>', true);
+    expect(builtHtml).toContain('<meta http-equiv="Content-Security-Policy"');
+    expect(builtHtml).toContain("connect-src 'none'");
+    expect(builtHtml).toContain("frame-ancestors 'none'");
+    expect(builtHtml).toContain("object-src 'none'");
+
+    const devHtml = injectCspMeta('<html><!-- GHOSTWIRE_CSP --></html>', false);
+    expect(devHtml).toContain("frame-ancestors 'none'");
+    expect(devHtml).toContain("object-src 'none'");
+    expect(devHtml).toContain("connect-src 'self' ws: wss:");
+
+    expect(contentSecurityPolicy(true)).toContain("connect-src 'none'");
+    expect(contentSecurityPolicy(false)).toContain("connect-src 'self' ws: wss:");
+  });
+});
 
 describe('GHOSTWIRE.EXE Privacy, Microphone Lifecycle & Synthetic Integration', () => {
   let getUserMediaMock: ReturnType<typeof vi.fn>;

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { MAX_CAPTURE_FRAMES } from '../../app/limits';
 import { EXPERIMENT_PROTOCOLS } from '../../data/protocols';
 import { buildEnvironmentalFingerprint } from '../../dsp/analysis';
+import { stripWaveform } from '../../dsp/metrics';
 import type {
   DspFrame,
   EnvironmentalFingerprint,
@@ -183,9 +185,25 @@ function useWindowCapture(
   const [fpA, setFpA] = useState<EnvironmentalFingerprint | null>(null);
   const [fpB, setFpB] = useState<EnvironmentalFingerprint | null>(null);
 
+  const clearCaptureBuffer = useCallback(() => {
+    captureFramesRef.current = [];
+    setCaptureBufferCount(0);
+  }, []);
+
+  // AUDIT F1: release any retained frames when the component unmounts.
+  useEffect(
+    () => () => {
+      captureFramesRef.current = [];
+    },
+    []
+  );
+
   useEffect(() => {
     if (!capturingSlot || !latestFrame) return;
-    captureFramesRef.current.push(latestFrame);
+    // AUDIT F8: bound the short A/B capture buffer.
+    if (captureFramesRef.current.length >= MAX_CAPTURE_FRAMES) return;
+    // AUDIT F1: fingerprinting needs spectral features, not raw PCM.
+    captureFramesRef.current.push(stripWaveform(latestFrame));
     setCaptureBufferCount(captureFramesRef.current.length);
   }, [capturingSlot, latestFrame]);
 
@@ -194,6 +212,7 @@ function useWindowCapture(
     const frames = captureFramesRef.current;
     const slot = capturingSlot;
     setCapturingSlot(null);
+    clearCaptureBuffer();
     if (frames.length === 0) return;
     const fp = buildEnvironmentalFingerprint(
       frames,
@@ -202,7 +221,7 @@ function useWindowCapture(
     );
     if (slot === 'A') setFpA(fp);
     else setFpB(fp);
-  }, [capturingSlot, mode]);
+  }, [capturingSlot, mode, clearCaptureBuffer]);
 
   useEffect(() => {
     if (mode === 'idle' && capturingSlot) {
@@ -213,8 +232,7 @@ function useWindowCapture(
   const startCapture = useCallback(
     (slot: CaptureSlot) => {
       if (mode === 'idle') return;
-      captureFramesRef.current = [];
-      setCaptureBufferCount(0);
+      clearCaptureBuffer();
       setCapturingSlot(slot);
       // Clear the comparison and the window being replaced so a failed or
       // in-flight worker request cannot leave a stale result visible (AUDIT F9).
@@ -222,14 +240,15 @@ function useWindowCapture(
       if (slot === 'A') setFpA(null);
       else setFpB(null);
     },
-    [mode, onCaptureStart]
+    [mode, onCaptureStart, clearCaptureBuffer]
   );
 
   const resetWindows = useCallback(() => {
+    clearCaptureBuffer();
     setFpA(null);
     setFpB(null);
     onCaptureStart();
-  }, [onCaptureStart]);
+  }, [onCaptureStart, clearCaptureBuffer]);
 
   return {
     capturingSlot,

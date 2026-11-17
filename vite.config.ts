@@ -2,6 +2,8 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+import { injectCspMeta } from './src/config/csp';
+
 function cspPlugin(): Plugin {
   let isBuild = false;
   return {
@@ -10,13 +12,7 @@ function cspPlugin(): Plugin {
       isBuild = config.command === 'build';
     },
     transformIndexHtml(html) {
-      const csp = isBuild
-        ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; media-src 'self' mediastream: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';"
-        : "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws: wss:; media-src 'self' mediastream: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';";
-      return html.replace(
-        '<!-- GHOSTWIRE_CSP -->',
-        `<meta http-equiv="Content-Security-Policy" content="${csp}" />`
-      );
+      return injectCspMeta(html, isBuild);
     },
   };
 }

@@ -32,6 +32,9 @@ No tagged releases yet. Everything currently on `main` is unreleased.
 - Resolved the second `main` merge by porting the upstream non-overlapping spectral
   bands, time-aware cadence segmentation, worker-error/stale-result handling, and
   CSV metadata quoting into the refactored modules.
+- Resolved the third `main` merge by carrying the upstream buffer caps, validation
+  workflow and CSP hardening into the decomposed modules; CSP policy helpers are
+  now unit-testable without loading Vite in jsdom.
 
 ### Fixed
 
