@@ -12,9 +12,8 @@
  * filter, the result is normalized to a target RMS, peak-limited, and
  * encoded as 16-bit mono PCM — the safest shape for Chromium's capture path.
  *
- * Library usage:
- *   import { generateFakeMicNoiseWav } from './generate-fake-mic-noise.mjs';
- *   const wavBytes = generateFakeMicNoiseWav({ seconds: 10 });
+ * Library usage: import { generateFakeMicNoiseWav } from this module, then
+ * call `generateFakeMicNoiseWav({ seconds: 10 })` to get the WAV bytes.
  *
  * CLI usage:
  *   node scripts/generate-fake-mic-noise.mjs <output.wav> [--seconds 10]
@@ -35,7 +34,7 @@ export const FAKE_MIC_NOISE_DEFAULTS = {
 /**
  * Seeded Xorshift32 PRNG returning values in [-1, 1].
  */
-export function createNoisePrng(seed) {
+function createNoisePrng(seed) {
   let state = seed >>> 0 || 1;
   return () => {
     state ^= state << 13;
