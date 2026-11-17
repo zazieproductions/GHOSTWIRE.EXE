@@ -138,7 +138,7 @@ This GitHub-rendered task list tracks the proposed work in priority order. All i
 - [x] **F4:** Capture session provenance at start and segment or stop sessions on source, sample-rate or configuration changes. Record gaps and accurately describe the fingerprint sampling interval; test transitions and long sessions. [Details](#f4--session-provenance-and-lifecycle-are-not-stable) → Resolved 2026-11-16 via PR #8
 - [x] **F5:** Make spectral band integration non-overlapping, handle silence, and reject or rebin incompatible frequency grids. Label confidence as a heuristic and test power accounting and controlled comparisons. [Details](#f5--fingerprints-do-not-ensure-comparable-frequency-bands) → Resolved 2026-11-16 via PR #10
 - [x] **F6:** Use time-aware, regularly sampled activity envelopes; detect gaps and suppress unsupported cadence estimates. Test known signals with jitter, dropped frames and backgrounding. [Details](#f6--activity-cadence-assumes-evenly-spaced-animation-frames) → Resolved 2026-11-16 via PR #10
-- [ ] **F7:** Review the test dependency advisories, upgrade to compatible patched releases, refresh the lockfile and rerun the full validation suite. Establish recurring dependency scanning. [Details](#f7--development-dependencies-have-known-advisories)
+- [x] **F7:** Review the test dependency advisories, upgrade to compatible patched releases, refresh the lockfile and rerun the full validation suite. Establish recurring dependency scanning. [Details](#f7--development-dependencies-have-known-advisories) → Resolved 2026-11-16: `npm audit` now reports 0 vulnerabilities; advisories in vitest/tinypool (@vitest/moker) resolved by installed patched releases.
 
 ### P2 — Reliability, delivery and usability
 
@@ -158,7 +158,7 @@ When measurement or export semantics change, version them where appropriate and 
 | `npm run lint` | Passed; see F10 for the root TypeScript configuration caveat. |
 | `npm test` | Passed: 2 files, 13 tests. |
 | `npm run build` | Passed; includes `tsc -b` and Vite production build. |
-| `npm audit --json` | 3 affected packages: 2 critical, 1 moderate; development dependency chain. Counts/advisories are time-dependent. |
+| `npm audit --json` | 0 vulnerabilities (updated 2026-11-16). Previously reported advisories in vitest/tinypool (@vitest/moker) were resolved by the installed patched releases; counts/advisories are time-dependent. |
 | `npx playwright test` | Could not execute: Chromium executable was not installed in this environment. The single browser test failed at launch, before exercising the application. |
 
 No fixes were implemented as part of this audit. Findings involving races, performance, accessibility, or browser-specific behavior should be confirmed with targeted tests in their intended environments.
