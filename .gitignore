@@ -12,6 +12,14 @@ playwright-report/
 test-results/
 blob-report/
 
+# Roast My Codebase generated reports
+.roast-*.json
+.roast-*.svg
+.roast-*.md
+.roast-*.html
+.roast-*.sarif
+.roast-*.xml
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

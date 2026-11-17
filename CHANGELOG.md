@@ -16,6 +16,26 @@ No tagged releases yet. Everything currently on `main` is unreleased.
 
 - Repository automation: `slop-scan` package verification, `roast-my-codebase` pull
   request health reports, and automated changelog updates on release.
+- Build-time complexity guard (`npm run check:complexity`) plus deterministic DSP
+  regression fixtures for activity inference and privacy-leakage heuristics.
+
+### Changed
+
+- Decomposed the seven critical-complexity functions into focused hooks, helpers and
+  presentation components; all Roast critical and warning complexity findings are
+  now below their thresholds.
+- Extracted application state, engine lifecycle, capture controls, session recording
+  and workspace routing into `src/app/`.
+- Kept the refactor mergeable as `main` advanced by porting upstream audit fixes
+  into the decomposed modules: waveform stripping and race-safe capture
+  cancellation, non-overlapping spectral bands, time-aware cadence segmentation,
+  worker-error/stale-result handling, CSV metadata quoting, explicit buffer caps,
+  in-place session sample accumulation, the validation workflow and CSP hardening.
+  CSP policy helpers are unit-testable without loading Vite in jsdom.
+
+### Fixed
+
+- Made the integration-test `AudioContext` mock constructible under Vitest 5.
 
 ### Security
 

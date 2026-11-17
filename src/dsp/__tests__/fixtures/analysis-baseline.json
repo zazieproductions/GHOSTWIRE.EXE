@@ -1,0 +1,515 @@
+{
+  "activity": {
+    "empty": {
+      "windowDurationSec": 0,
+      "frameCount": 0,
+      "dominantState": "No Signal Window",
+      "classifications": [],
+      "detectedPeriodHz": null,
+      "periodicityStrength": 0,
+      "transientCount": 0
+    },
+    "quiet": {
+      "windowDurationSec": 0.95,
+      "frameCount": 20,
+      "dominantState": "Relative Quiet",
+      "classifications": [
+        {
+          "id": "quiet",
+          "label": "Relative Quiet",
+          "detected": true,
+          "confidence": "high",
+          "measuredEvidence": "Mean RMS -120.0 dBFS, Active frames 0%",
+          "thresholdRule": "Mean RMS < -50 dBFS AND active fraction < 25%",
+          "reasoning": "Signal energy remains below the configured activity threshold with minimal transient excursions."
+        },
+        {
+          "id": "sustained_tonal",
+          "label": "Sustained Tonal Activity",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Flatness 0.000, Dom. Freq 0.0 Hz (CV 100.0%)",
+          "thresholdRule": "Active >= 40%, Spectral Flatness < 0.18, Dominant Freq CV < 18%",
+          "reasoning": "Spectrum lacks a persistent narrowband peak (either quiet, broadband, or rapidly varying)."
+        },
+        {
+          "id": "broadband_noise",
+          "label": "Broadband Noise",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Flatness 0.000, Bandwidth 0 Hz, Crest 0.0 dB",
+          "thresholdRule": "Active, Flatness >= 0.32, Bandwidth >= 1100 Hz, Crest < 11.5 dB",
+          "reasoning": "Signal is either below threshold, dominated by narrowband tones, or dominated by sharp impulses."
+        },
+        {
+          "id": "transient_impulse",
+          "label": "Transient / Impulsive Sounds",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Transient frames 0/20, Max onset jump +0.0 dB, Mean crest 0.0 dB",
+          "thresholdRule": "Crest factor >= 11 dB OR frame-to-frame RMS jump >= +7 dB",
+          "reasoning": "Amplitude envelope varies smoothly without high-crest impulsive peaks."
+        },
+        {
+          "id": "repetitive_events",
+          "label": "Repetitive Acoustic Events",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Max envelope autocorrelation r=0.00",
+          "thresholdRule": "RMS envelope autocorrelation r >= 0.42 across 0.7–12.5 Hz lags with impulsive modulation",
+          "reasoning": "No statistically consistent periodic repetition detected in the rolling RMS envelope."
+        }
+      ],
+      "detectedPeriodHz": null,
+      "periodicityStrength": 0,
+      "transientCount": 0
+    },
+    "tonal": {
+      "windowDurationSec": 1.08,
+      "frameCount": 25,
+      "dominantState": "Sustained Tonal Activity",
+      "classifications": [
+        {
+          "id": "quiet",
+          "label": "Relative Quiet",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Mean RMS -11.0 dBFS, Active frames 100%",
+          "thresholdRule": "Mean RMS < -50 dBFS AND active fraction < 25%",
+          "reasoning": "Signal exceeds the quiet threshold or exhibits frequent active frames."
+        },
+        {
+          "id": "sustained_tonal",
+          "label": "Sustained Tonal Activity",
+          "detected": true,
+          "confidence": "high",
+          "measuredEvidence": "Flatness 0.000, Dom. Freq 879.8 Hz (CV 0.0%)",
+          "thresholdRule": "Active >= 40%, Spectral Flatness < 0.18, Dominant Freq CV < 18%",
+          "reasoning": "Energy is concentrated in narrowband spectral peaks around 880 Hz with stable pitch/frequency."
+        },
+        {
+          "id": "broadband_noise",
+          "label": "Broadband Noise",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Flatness 0.000, Bandwidth 34 Hz, Crest 3.0 dB",
+          "thresholdRule": "Active, Flatness >= 0.32, Bandwidth >= 1100 Hz, Crest < 11.5 dB",
+          "reasoning": "Signal is either below threshold, dominated by narrowband tones, or dominated by sharp impulses."
+        },
+        {
+          "id": "transient_impulse",
+          "label": "Transient / Impulsive Sounds",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Transient frames 0/25, Max onset jump +0.0 dB, Mean crest 3.0 dB",
+          "thresholdRule": "Crest factor >= 11 dB OR frame-to-frame RMS jump >= +7 dB",
+          "reasoning": "Amplitude envelope varies smoothly without high-crest impulsive peaks."
+        },
+        {
+          "id": "repetitive_events",
+          "label": "Repetitive Acoustic Events",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Max envelope autocorrelation r=0.00",
+          "thresholdRule": "RMS envelope autocorrelation r >= 0.42 across 0.7–12.5 Hz lags with impulsive modulation",
+          "reasoning": "No statistically consistent periodic repetition detected in the rolling RMS envelope."
+        }
+      ],
+      "detectedPeriodHz": null,
+      "periodicityStrength": 0,
+      "transientCount": 0
+    },
+    "white": {
+      "windowDurationSec": 1.305,
+      "frameCount": 30,
+      "dominantState": "Broadband Noise",
+      "classifications": [
+        {
+          "id": "quiet",
+          "label": "Relative Quiet",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Mean RMS -10.8 dBFS, Active frames 100%",
+          "thresholdRule": "Mean RMS < -50 dBFS AND active fraction < 25%",
+          "reasoning": "Signal exceeds the quiet threshold or exhibits frequent active frames."
+        },
+        {
+          "id": "sustained_tonal",
+          "label": "Sustained Tonal Activity",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Flatness 0.560, Dom. Freq 9702.6 Hz (CV 0.0%)",
+          "thresholdRule": "Active >= 40%, Spectral Flatness < 0.18, Dominant Freq CV < 18%",
+          "reasoning": "Spectrum lacks a persistent narrowband peak (either quiet, broadband, or rapidly varying)."
+        },
+        {
+          "id": "broadband_noise",
+          "label": "Broadband Noise",
+          "detected": true,
+          "confidence": "high",
+          "measuredEvidence": "Flatness 0.560, Bandwidth 6981 Hz, Crest 4.8 dB",
+          "thresholdRule": "Active, Flatness >= 0.32, Bandwidth >= 1100 Hz, Crest < 11.5 dB",
+          "reasoning": "Acoustic energy is spread broadly across frequency bins without dominant tonal concentration."
+        },
+        {
+          "id": "transient_impulse",
+          "label": "Transient / Impulsive Sounds",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Transient frames 0/30, Max onset jump +0.0 dB, Mean crest 4.8 dB",
+          "thresholdRule": "Crest factor >= 11 dB OR frame-to-frame RMS jump >= +7 dB",
+          "reasoning": "Amplitude envelope varies smoothly without high-crest impulsive peaks."
+        },
+        {
+          "id": "repetitive_events",
+          "label": "Repetitive Acoustic Events",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Max envelope autocorrelation r=0.00",
+          "thresholdRule": "RMS envelope autocorrelation r >= 0.42 across 0.7–12.5 Hz lags with impulsive modulation",
+          "reasoning": "No statistically consistent periodic repetition detected in the rolling RMS envelope."
+        }
+      ],
+      "detectedPeriodHz": null,
+      "periodicityStrength": 0,
+      "transientCount": 0
+    },
+    "impulse": {
+      "windowDurationSec": 2.478,
+      "frameCount": 60,
+      "dominantState": "Broadband Noise + Transient / Impulsive Sounds + Repetitive Acoustic Events",
+      "classifications": [
+        {
+          "id": "quiet",
+          "label": "Relative Quiet",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Mean RMS -33.0 dBFS, Active frames 100%",
+          "thresholdRule": "Mean RMS < -50 dBFS AND active fraction < 25%",
+          "reasoning": "Signal exceeds the quiet threshold or exhibits frequent active frames."
+        },
+        {
+          "id": "sustained_tonal",
+          "label": "Sustained Tonal Activity",
+          "detected": false,
+          "confidence": "low",
+          "measuredEvidence": "Flatness 0.483, Dom. Freq 8039.2 Hz (CV 38.8%)",
+          "thresholdRule": "Active >= 40%, Spectral Flatness < 0.18, Dominant Freq CV < 18%",
+          "reasoning": "Spectrum lacks a persistent narrowband peak (either quiet, broadband, or rapidly varying)."
+        },
+        {
+          "id": "broadband_noise",
+          "label": "Broadband Noise",
+          "detected": true,
+          "confidence": "high",
+          "measuredEvidence": "Flatness 0.483, Bandwidth 6901 Hz, Crest 8.0 dB",
+          "thresholdRule": "Active, Flatness >= 0.32, Bandwidth >= 1100 Hz, Crest < 11.5 dB",
+          "reasoning": "Acoustic energy is spread broadly across frequency bins without dominant tonal concentration."
+        },
+        {
+          "id": "transient_impulse",
+          "label": "Transient / Impulsive Sounds",
+          "detected": true,
+          "confidence": "high",
+          "measuredEvidence": "Transient frames 16/60, Max onset jump +18.2 dB, Mean crest 8.0 dB",
+          "thresholdRule": "Crest factor >= 11 dB OR frame-to-frame RMS jump >= +7 dB",
+          "reasoning": "Detected abrupt amplitude spikes or high peak-to-RMS ratios characteristic of impulsive acoustic events."
+        },
+        {
+          "id": "repetitive_events",
+          "label": "Repetitive Acoustic Events",
+          "detected": true,
+          "confidence": "high",
+          "measuredEvidence": "Periodicity r=0.98 at ~3.97 Hz",
+          "thresholdRule": "RMS envelope autocorrelation r >= 0.42 across 0.7–12.5 Hz lags with impulsive modulation",
+          "reasoning": "Amplitude envelope repeats regularly at approximately 3.97 events/sec."
+        }
+      ],
+      "detectedPeriodHz": 3.9682539682539684,
+      "periodicityStrength": 0.9780722621039755,
+      "transientCount": 16
+    }
+  },
+  "privacy": {
+    "empty": {
+      "educationalHeuristicScore": 0,
+      "heuristicTier": "Minimal",
+      "observableFeatures": [
+        {
+          "name": "Estimated Noise Floor",
+          "value": "No active stream",
+          "source": "Adaptive 10th-percentile tracker"
+        },
+        {
+          "name": "Mean Signal Level",
+          "value": "No active stream",
+          "source": "Time-domain RMS"
+        },
+        {
+          "name": "Spectral Flatness (Mean)",
+          "value": "—",
+          "source": "Wiener entropy across FFT bins"
+        },
+        {
+          "name": "Low / High Band Balance",
+          "value": "—",
+          "source": "20–250 Hz vs >=2000 Hz power"
+        },
+        {
+          "name": "Browser Device Surface",
+          "value": "Not enumerated / suppressed",
+          "source": "navigator.mediaDevices"
+        }
+      ],
+      "potentialInferences": [
+        {
+          "inference": "No active audio stream or enumerated device metadata observed yet",
+          "confidence": "High",
+          "basis": "Enable Synthetic Signals or Microphone to observe live side-channel feature leakage."
+        }
+      ],
+      "cannotBeConcluded": [
+        "Spoken words, semantic conversation content, or transcripts (no ASR/recording is performed).",
+        "Unique speaker identity, age, gender, or biometric verification.",
+        "Exact physical location, street address, or room identity from spectral profiles alone.",
+        "Specific real-world actions (e.g., typing vs. tapping vs. kitchen noises) without ground-truth calibration."
+      ],
+      "mitigations": [
+        "Revoke site microphone permissions when not actively needed; treat OS hardware mute LEDs as authoritative.",
+        "Use physical microphone disconnect/mute switches rather than relying solely on software mute.",
+        "Apply high-pass filtering (e.g., 150–250 Hz) or noise gating in privacy-preserving virtual audio routes to strip low-frequency mains/machinery side channels.",
+        "Avoid granting persistent microphone access across origins, as permission unlocks device label enumeration for hardware fingerprinting."
+      ]
+    },
+    "quiet": {
+      "educationalHeuristicScore": 8,
+      "heuristicTier": "Minimal",
+      "observableFeatures": [
+        {
+          "name": "Estimated Noise Floor",
+          "value": "-120.0 dBFS",
+          "source": "Adaptive 10th-percentile tracker"
+        },
+        {
+          "name": "Mean Signal Level",
+          "value": "-120.0 dBFS",
+          "source": "Time-domain RMS"
+        },
+        {
+          "name": "Spectral Flatness (Mean)",
+          "value": "0.000",
+          "source": "Wiener entropy across FFT bins"
+        },
+        {
+          "name": "Low / High Band Balance",
+          "value": "0% Low / 0% High",
+          "source": "20–250 Hz vs >=2000 Hz power"
+        },
+        {
+          "name": "Browser Device Surface",
+          "value": "Not enumerated / suppressed",
+          "source": "navigator.mediaDevices"
+        }
+      ],
+      "potentialInferences": [
+        {
+          "inference": "Baseline ambient floor characterization (quiet state)",
+          "confidence": "Moderate",
+          "basis": "Steady baseline near -120.0 dBFS enables occupancy-change detection if monitored over time."
+        }
+      ],
+      "cannotBeConcluded": [
+        "Spoken words, semantic conversation content, or transcripts (no ASR/recording is performed).",
+        "Unique speaker identity, age, gender, or biometric verification.",
+        "Exact physical location, street address, or room identity from spectral profiles alone.",
+        "Specific real-world actions (e.g., typing vs. tapping vs. kitchen noises) without ground-truth calibration."
+      ],
+      "mitigations": [
+        "Revoke site microphone permissions when not actively needed; treat OS hardware mute LEDs as authoritative.",
+        "Use physical microphone disconnect/mute switches rather than relying solely on software mute.",
+        "Apply high-pass filtering (e.g., 150–250 Hz) or noise gating in privacy-preserving virtual audio routes to strip low-frequency mains/machinery side channels.",
+        "Avoid granting persistent microphone access across origins, as permission unlocks device label enumeration for hardware fingerprinting."
+      ]
+    },
+    "tonal": {
+      "educationalHeuristicScore": 42,
+      "heuristicTier": "Moderate",
+      "observableFeatures": [
+        {
+          "name": "Estimated Noise Floor",
+          "value": "-11.0 dBFS",
+          "source": "Adaptive 10th-percentile tracker"
+        },
+        {
+          "name": "Mean Signal Level",
+          "value": "-11.0 dBFS",
+          "source": "Time-domain RMS"
+        },
+        {
+          "name": "Spectral Flatness (Mean)",
+          "value": "0.000",
+          "source": "Wiener entropy across FFT bins"
+        },
+        {
+          "name": "Low / High Band Balance",
+          "value": "0% Low / 0% High",
+          "source": "20–250 Hz vs >=2000 Hz power"
+        },
+        {
+          "name": "Browser Device Surface",
+          "value": "2 device(s), 1 labeled",
+          "source": "navigator.mediaDevices"
+        }
+      ],
+      "potentialInferences": [
+        {
+          "inference": "Presence of active acoustic energy above baseline noise floor",
+          "confidence": "Moderate",
+          "basis": "Measured SNR +0.0 dB over -11.0 dBFS floor."
+        },
+        {
+          "inference": "Hardware class, audio-routing, or peripheral configuration fingerprinting",
+          "confidence": "High",
+          "basis": "1 device label(s) + track settings (e.g. 48000 Hz) exposed by MediaDevices API."
+        }
+      ],
+      "cannotBeConcluded": [
+        "Spoken words, semantic conversation content, or transcripts (no ASR/recording is performed).",
+        "Unique speaker identity, age, gender, or biometric verification.",
+        "Exact physical location, street address, or room identity from spectral profiles alone.",
+        "Specific real-world actions (e.g., typing vs. tapping vs. kitchen noises) without ground-truth calibration."
+      ],
+      "mitigations": [
+        "Revoke site microphone permissions when not actively needed; treat OS hardware mute LEDs as authoritative.",
+        "Use physical microphone disconnect/mute switches rather than relying solely on software mute.",
+        "Apply high-pass filtering (e.g., 150–250 Hz) or noise gating in privacy-preserving virtual audio routes to strip low-frequency mains/machinery side channels.",
+        "Avoid granting persistent microphone access across origins, as permission unlocks device label enumeration for hardware fingerprinting."
+      ]
+    },
+    "white": {
+      "educationalHeuristicScore": 40,
+      "heuristicTier": "Moderate",
+      "observableFeatures": [
+        {
+          "name": "Estimated Noise Floor",
+          "value": "-10.8 dBFS",
+          "source": "Adaptive 10th-percentile tracker"
+        },
+        {
+          "name": "Mean Signal Level",
+          "value": "-10.8 dBFS",
+          "source": "Time-domain RMS"
+        },
+        {
+          "name": "Spectral Flatness (Mean)",
+          "value": "0.560",
+          "source": "Wiener entropy across FFT bins"
+        },
+        {
+          "name": "Low / High Band Balance",
+          "value": "1% Low / 92% High",
+          "source": "20–250 Hz vs >=2000 Hz power"
+        },
+        {
+          "name": "Browser Device Surface",
+          "value": "Not enumerated / suppressed",
+          "source": "navigator.mediaDevices"
+        }
+      ],
+      "potentialInferences": [
+        {
+          "inference": "Presence of active acoustic energy above baseline noise floor",
+          "confidence": "Moderate",
+          "basis": "Measured SNR +0.0 dB over -10.8 dBFS floor."
+        },
+        {
+          "inference": "Broadband airflow / diffuse noise floor profile",
+          "confidence": "Low",
+          "basis": "Elevated spectral flatness (0.560) suggests broadband environmental noise."
+        },
+        {
+          "inference": "Hardware class, audio-routing, or peripheral configuration fingerprinting",
+          "confidence": "Moderate",
+          "basis": "Track settings expose sample rate and DSP flags."
+        }
+      ],
+      "cannotBeConcluded": [
+        "Spoken words, semantic conversation content, or transcripts (no ASR/recording is performed).",
+        "Unique speaker identity, age, gender, or biometric verification.",
+        "Exact physical location, street address, or room identity from spectral profiles alone.",
+        "Specific real-world actions (e.g., typing vs. tapping vs. kitchen noises) without ground-truth calibration."
+      ],
+      "mitigations": [
+        "Revoke site microphone permissions when not actively needed; treat OS hardware mute LEDs as authoritative.",
+        "Use physical microphone disconnect/mute switches rather than relying solely on software mute.",
+        "Apply high-pass filtering (e.g., 150–250 Hz) or noise gating in privacy-preserving virtual audio routes to strip low-frequency mains/machinery side channels.",
+        "Avoid granting persistent microphone access across origins, as permission unlocks device label enumeration for hardware fingerprinting."
+      ]
+    },
+    "impulse": {
+      "educationalHeuristicScore": 74,
+      "heuristicTier": "Elevated",
+      "observableFeatures": [
+        {
+          "name": "Estimated Noise Floor",
+          "value": "-18.6 dBFS",
+          "source": "Adaptive 10th-percentile tracker"
+        },
+        {
+          "name": "Mean Signal Level",
+          "value": "-33.0 dBFS",
+          "source": "Time-domain RMS"
+        },
+        {
+          "name": "Spectral Flatness (Mean)",
+          "value": "0.483",
+          "source": "Wiener entropy across FFT bins"
+        },
+        {
+          "name": "Low / High Band Balance",
+          "value": "1% Low / 93% High",
+          "source": "20–250 Hz vs >=2000 Hz power"
+        },
+        {
+          "name": "Browser Device Surface",
+          "value": "2 device(s), 1 labeled",
+          "source": "navigator.mediaDevices"
+        }
+      ],
+      "potentialInferences": [
+        {
+          "inference": "Presence of active acoustic energy above baseline noise floor",
+          "confidence": "Moderate",
+          "basis": "Measured SNR +0.0 dB over -18.6 dBFS floor."
+        },
+        {
+          "inference": "Cadence / event-rate leakage (~3.97 Hz repetitive pattern)",
+          "confidence": "Moderate",
+          "basis": "Envelope autocorrelation r=0.98 reveals rhythmic acoustic timing without recording speech."
+        },
+        {
+          "inference": "Broadband airflow / diffuse noise floor profile",
+          "confidence": "Low",
+          "basis": "Elevated spectral flatness (0.483) suggests broadband environmental noise."
+        },
+        {
+          "inference": "Hardware class, audio-routing, or peripheral configuration fingerprinting",
+          "confidence": "High",
+          "basis": "1 device label(s) + track settings (e.g. 48000 Hz) exposed by MediaDevices API."
+        }
+      ],
+      "cannotBeConcluded": [
+        "Spoken words, semantic conversation content, or transcripts (no ASR/recording is performed).",
+        "Unique speaker identity, age, gender, or biometric verification.",
+        "Exact physical location, street address, or room identity from spectral profiles alone.",
+        "Specific real-world actions (e.g., typing vs. tapping vs. kitchen noises) without ground-truth calibration."
+      ],
+      "mitigations": [
+        "Revoke site microphone permissions when not actively needed; treat OS hardware mute LEDs as authoritative.",
+        "Use physical microphone disconnect/mute switches rather than relying solely on software mute.",
+        "Apply high-pass filtering (e.g., 150–250 Hz) or noise gating in privacy-preserving virtual audio routes to strip low-frequency mains/machinery side channels.",
+        "Avoid granting persistent microphone access across origins, as permission unlocks device label enumeration for hardware fingerprinting."
+      ]
+    }
+  }
+}

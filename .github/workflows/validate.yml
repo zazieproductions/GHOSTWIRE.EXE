@@ -38,13 +38,16 @@ jobs:
       - name: Type-check (tsc -b)
         run: npx tsc -b --noEmit
 
-      - name: Lint (tsc --noEmit as proxy; see F10)
-        run: npx tsc --noEmit
+      - name: Lint (project type-check)
+        run: npm run lint
+
+      - name: Complexity guard
+        run: npm run check:complexity
 
       - name: Tests (vitest)
-        run: npx vitest run
+        run: npm test
 
-      - name: Build (tsc -b + Vite)
+      - name: Build (tsc -b + Vite, includes complexity guard)
         run: npm run build
 
       - name: Dependency audit (npm audit)

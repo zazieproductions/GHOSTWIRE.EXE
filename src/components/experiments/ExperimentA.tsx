@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MAX_CAPTURE_FRAMES } from '../../app/limits';
 import { EXPERIMENT_PROTOCOLS } from '../../data/protocols';
 import { buildEnvironmentalFingerprint } from '../../dsp/analysis';
+import { stripWaveform } from '../../dsp/metrics';
 import type {
   DspFrame,
   EnvironmentalFingerprint,
@@ -16,54 +18,201 @@ interface ExperimentAProps {
   latestFrame: DspFrame | null;
 }
 
-export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
-  const [capturingSlot, setCapturingSlot] = useState<'A' | 'B' | null>(null);
-  const [captureBufferCount, setCaptureBufferCount] = useState(0);
-  // F8: cap the capture buffer so a long capture cannot grow without limit.
-  // 300 frames ≈ 12s at 25 fps; Experiment A is a short A/B capture tool.
-  const MAX_CAPTURE_FRAMES = 300;
-  const captureFramesRef = useRef<DspFrame[]>([]);
+type CaptureSlot = 'A' | 'B';
 
-  const [fpA, setFpA] = useState<EnvironmentalFingerprint | null>(null);
-  const [fpB, setFpB] = useState<EnvironmentalFingerprint | null>(null);
-  const [comparison, setComparison] = useState<FingerprintComparison | null>(null);
-  const [comparing, setComparing] = useState(false);
+type ComparisonSetter = (value: FingerprintComparison | null) => void;
+type ComparingSetter = (value: boolean) => void;
 
+interface ProfilePlot {
+  ctx: CanvasRenderingContext2D;
+  width: number;
+  height: number;
+  padL: number;
+  padT: number;
+  plotW: number;
+  plotH: number;
+}
+
+const PROFILE_GRID_DB = [0, -25, -50, -75, -100];
+const PROFILE_TICKS = [0, 7, 15, 23, 31];
+
+function signed(value: number, digits: number): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
+}
+
+function profileDbToY(db: number, padT: number, plotH: number): number {
+  const minDb = -100;
+  const maxDb = 0;
+  const clamped = Math.max(minDb, Math.min(maxDb, db));
+  return padT + (1 - (clamped - minDb) / (maxDb - minDb)) * plotH;
+}
+
+function formatFrequency(hz: number): string {
+  return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${hz.toFixed(0)}`;
+}
+
+function drawProfileGrid(plot: ProfilePlot): void {
+  const { ctx, padL, padT, plotW, plotH } = plot;
+  ctx.strokeStyle = '#132018';
+  ctx.fillStyle = '#627d6c';
+  ctx.font = '10px monospace';
+  for (const db of PROFILE_GRID_DB) {
+    const y = Math.round(profileDbToY(db, padT, plotH)) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(padL + plotW, y);
+    ctx.stroke();
+    ctx.fillText(`${db}`, 4, y + 3);
+  }
+}
+
+function drawProfile(
+  plot: ProfilePlot,
+  fp: EnvironmentalFingerprint,
+  color: string
+): void {
+  const { ctx, width, height, padL, padT, plotW, plotH } = plot;
+  const bands = fp.logBandDbfs;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < bands.length; i++) {
+    const x = padL + (i / (bands.length - 1)) * plotW;
+    const y = profileDbToY(bands[i], padT, plotH);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Axis frequency ticks from band centers
+  ctx.fillStyle = '#627d6c';
+  for (const idx of PROFILE_TICKS) {
+    const hz = fp.logBandCentersHz[idx];
+    const x = padL + (idx / (bands.length - 1)) * plotW;
+    const txt = formatFrequency(hz);
+    ctx.fillText(txt, Math.min(width - 28, x - 8), height - 7);
+  }
+}
+
+function drawEmptyProfile(plot: ProfilePlot): void {
+  const { ctx, padL, padT, plotH } = plot;
+  ctx.fillStyle = '#52695b';
+  ctx.font = '11px monospace';
+  ctx.fillText(
+    'CAPTURE WINDOW A AND WINDOW B TO PLOT 32-BAND SPECTRAL FINGERPRINT COMPARISON',
+    padL + 10,
+    padT + plotH / 2
+  );
+}
+
+function drawFingerprintComparison(
+  canvas: HTMLCanvasElement,
+  fpA: EnvironmentalFingerprint | null,
+  fpB: EnvironmentalFingerprint | null
+): void {
+  const width = canvas.clientWidth || 640;
+  const height = 200;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(width * dpr);
+  canvas.height = Math.floor(height * dpr);
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.save();
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = '#06090b';
+  ctx.fillRect(0, 0, width, height);
+
+  const padL = 40;
+  const padR = 14;
+  const padT = 16;
+  const padB = 26;
+  const plot: ProfilePlot = {
+    ctx,
+    width,
+    height,
+    padL,
+    padT,
+    plotW: width - padL - padR,
+    plotH: height - padT - padB,
+  };
+
+  drawProfileGrid(plot);
+  if (fpA) drawProfile(plot, fpA, '#22c55e');
+  if (fpB) drawProfile(plot, fpB, '#f59e0b');
+  if (!fpA && !fpB) drawEmptyProfile(plot);
+
+  ctx.restore();
+}
+
+function FingerprintCanvas({
+  fpA,
+  fpB,
+  comparing,
+}: {
+  fpA: EnvironmentalFingerprint | null;
+  fpB: EnvironmentalFingerprint | null;
+  comparing: boolean;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Collect frames while capturing A or B (bounded for memory safety, F8).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    drawFingerprintComparison(canvas, fpA, fpB);
+  }, [fpA, fpB]);
+
+  return (
+    <div className="panel-border rounded-sm overflow-hidden">
+      <div className="panel-header px-3 py-1.5 flex items-center justify-between text-[11px] text-[#86a390]">
+        <span>32-BAND LOG FREQUENCY PROFILE COMPARISON (GREEN = A, AMBER = B)</span>
+        <span>{comparing ? 'COMPUTING IN WORKER...' : 'READY'}</span>
+      </div>
+      <canvas ref={canvasRef} className="w-full block" style={{ height: 200 }} />
+    </div>
+  );
+}
+
+function useWindowCapture(
+  mode: InputMode,
+  latestFrame: DspFrame | null,
+  onCaptureStart: () => void
+) {
+  const [capturingSlot, setCapturingSlot] = useState<CaptureSlot | null>(null);
+  const [captureBufferCount, setCaptureBufferCount] = useState(0);
+  const captureFramesRef = useRef<DspFrame[]>([]);
+  const [fpA, setFpA] = useState<EnvironmentalFingerprint | null>(null);
+  const [fpB, setFpB] = useState<EnvironmentalFingerprint | null>(null);
+
+  const clearCaptureBuffer = useCallback(() => {
+    captureFramesRef.current = [];
+    setCaptureBufferCount(0);
+  }, []);
+
+  // AUDIT F1: release any retained frames when the component unmounts.
+  useEffect(
+    () => () => {
+      captureFramesRef.current = [];
+    },
+    []
+  );
+
   useEffect(() => {
     if (!capturingSlot || !latestFrame) return;
+    // AUDIT F8: bound the short A/B capture buffer.
     if (captureFramesRef.current.length >= MAX_CAPTURE_FRAMES) return;
-    captureFramesRef.current.push(latestFrame);
+    // AUDIT F1: fingerprinting needs spectral features, not raw PCM.
+    captureFramesRef.current.push(stripWaveform(latestFrame));
     setCaptureBufferCount(captureFramesRef.current.length);
   }, [capturingSlot, latestFrame]);
 
-  // Stop capturing automatically if input stops
-  useEffect(() => {
-    if (mode === 'idle' && capturingSlot) {
-      finishCapture();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
-
-  const startCapture = (slot: 'A' | 'B') => {
-    if (mode === 'idle') return;
-    captureFramesRef.current = [];
-    setCaptureBufferCount(0);
-    setCapturingSlot(slot);
-    // Reset comparison state on new capture so a previous result is not shown
-    // as current after a fresh capture (AUDIT F9).
-    setComparison(null);
-    setFpA(null);
-    setFpB(null);
-  };
-
-  const finishCapture = () => {
+  const finishCapture = useCallback(() => {
     if (!capturingSlot) return;
     const frames = captureFramesRef.current;
     const slot = capturingSlot;
     setCapturingSlot(null);
+    clearCaptureBuffer();
     if (frames.length === 0) return;
     const fp = buildEnvironmentalFingerprint(
       frames,
@@ -72,118 +221,89 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
     );
     if (slot === 'A') setFpA(fp);
     else setFpB(fp);
-  };
+  }, [capturingSlot, mode, clearCaptureBuffer]);
 
-  const runComparison = async () => {
+  useEffect(() => {
+    if (mode === 'idle' && capturingSlot) {
+      finishCapture();
+    }
+  }, [mode, capturingSlot, finishCapture]);
+
+  const startCapture = useCallback(
+    (slot: CaptureSlot) => {
+      if (mode === 'idle') return;
+      clearCaptureBuffer();
+      setCapturingSlot(slot);
+      // Clear the comparison and the window being replaced so a failed or
+      // in-flight worker request cannot leave a stale result visible (AUDIT F9).
+      onCaptureStart();
+      if (slot === 'A') setFpA(null);
+      else setFpB(null);
+    },
+    [mode, onCaptureStart, clearCaptureBuffer]
+  );
+
+  const resetWindows = useCallback(() => {
+    clearCaptureBuffer();
+    setFpA(null);
+    setFpB(null);
+    onCaptureStart();
+  }, [onCaptureStart, clearCaptureBuffer]);
+
+  return {
+    capturingSlot,
+    captureBufferCount,
+    fpA,
+    fpB,
+    startCapture,
+    finishCapture,
+    resetWindows,
+  };
+}
+
+function useFingerprintComparison(
+  fpA: EnvironmentalFingerprint | null,
+  fpB: EnvironmentalFingerprint | null,
+  setComparison: ComparisonSetter,
+  setComparing: ComparingSetter
+): void {
+  const requestIdRef = useRef(0);
+  const runComparison = useCallback(async () => {
     if (!fpA || !fpB) return;
+    const requestId = ++requestIdRef.current;
+    setComparison(null);
     setComparing(true);
     try {
       const res = await dspWorkerClient.compareFingerprints(fpA, fpB);
+      if (requestId !== requestIdRef.current) return;
       setComparison(res);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       // Surface worker / fingerprint comparison failures without leaving a
-      // stale result (AUDIT F9). The UI can still show the last successful
-      // comparison; a fresh comparison will overwrite it.
+      // stale result visible (AUDIT F9).
       console.error('[ExperimentA] fingerprint comparison failed:', err);
       setComparison(null);
     } finally {
-      setComparing(false);
+      if (requestId === requestIdRef.current) setComparing(false);
     }
-  };
+  }, [fpA, fpB, setComparison, setComparing]);
 
-  // Auto-run comparison when both fingerprints exist
   useEffect(() => {
     if (fpA && fpB) {
       void runComparison();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fpA, fpB]);
-
-  // Draw 32-band profile comparison canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const width = canvas.clientWidth || 640;
-    const height = 200;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.floor(width * dpr);
-    canvas.height = Math.floor(height * dpr);
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.save();
-    ctx.scale(dpr, dpr);
-
-    ctx.fillStyle = '#06090b';
-    ctx.fillRect(0, 0, width, height);
-
-    const padL = 40;
-    const padR = 14;
-    const padT = 16;
-    const padB = 26;
-    const plotW = width - padL - padR;
-    const plotH = height - padT - padB;
-
-    const minDb = -100;
-    const maxDb = 0;
-    const dbToY = (db: number) =>
-      padT + (1 - (Math.max(minDb, Math.min(maxDb, db)) - minDb) / (maxDb - minDb)) * plotH;
-
-    // Grid
-    ctx.strokeStyle = '#132018';
-    ctx.fillStyle = '#627d6c';
-    ctx.font = '10px monospace';
-    for (const db of [0, -25, -50, -75, -100]) {
-      const y = Math.round(dbToY(db)) + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(padL, y);
-      ctx.lineTo(padL + plotW, y);
-      ctx.stroke();
-      ctx.fillText(`${db}`, 4, y + 3);
-    }
-
-    const drawProfile = (
-      fp: EnvironmentalFingerprint,
-      color: string
-    ) => {
-      const bands = fp.logBandDbfs;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let i = 0; i < bands.length; i++) {
-        const x = padL + (i / (bands.length - 1)) * plotW;
-        const y = dbToY(bands[i]);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-
-      // Axis frequency ticks from band centers
-      ctx.fillStyle = '#627d6c';
-      for (const idx of [0, 7, 15, 23, 31]) {
-        const hz = fp.logBandCentersHz[idx];
-        const x = padL + (idx / (bands.length - 1)) * plotW;
-        const txt = hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${hz.toFixed(0)}`;
-        ctx.fillText(txt, Math.min(width - 28, x - 8), height - 7);
-      }
+    return () => {
+      // A newer capture invalidates any in-flight comparison response.
+      requestIdRef.current += 1;
     };
+  }, [fpA, fpB, runComparison]);
+}
 
-    if (fpA) drawProfile(fpA, '#22c55e');
-    if (fpB) drawProfile(fpB, '#f59e0b');
-
-    if (!fpA && !fpB) {
-      ctx.fillStyle = '#52695b';
-      ctx.font = '11px monospace';
-      ctx.fillText(
-        'CAPTURE WINDOW A AND WINDOW B TO PLOT 32-BAND SPECTRAL FINGERPRINT COMPARISON',
-        padL + 10,
-        padT + plotH / 2
-      );
-    }
-
-    ctx.restore();
-  }, [fpA, fpB]);
-
+function buildLiveObservations(
+  fpA: EnvironmentalFingerprint | null,
+  fpB: EnvironmentalFingerprint | null,
+  comparison: FingerprintComparison | null
+): string[] {
   const liveObs: string[] = [];
   if (fpA) {
     liveObs.push(
@@ -197,12 +317,33 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
   }
   if (comparison) {
     liveObs.push(
-      `Cosine Similarity ${(comparison.cosineSimilarity * 100).toFixed(1)}%, Spectral RMSE ${comparison.spectralDistanceDb.toFixed(1)} dB, Noise Floor Δ ${comparison.noiseFloorDeltaDb >= 0 ? '+' : ''}${comparison.noiseFloorDeltaDb.toFixed(1)} dB`
+      `Cosine Similarity ${(comparison.cosineSimilarity * 100).toFixed(1)}%, Spectral RMSE ${comparison.spectralDistanceDb.toFixed(1)} dB, Noise Floor Δ ${signed(comparison.noiseFloorDeltaDb, 1)} dB`
     );
   }
+  return liveObs;
+}
 
+function CaptureControls({
+  mode,
+  capturingSlot,
+  captureBufferCount,
+  fpA,
+  fpB,
+  onStart,
+  onFinish,
+  onReset,
+}: {
+  mode: InputMode;
+  capturingSlot: CaptureSlot | null;
+  captureBufferCount: number;
+  fpA: EnvironmentalFingerprint | null;
+  fpB: EnvironmentalFingerprint | null;
+  onStart: (slot: CaptureSlot) => void;
+  onFinish: () => void;
+  onReset: () => void;
+}) {
   return (
-    <div className="space-y-4">
+    <>
       <div className="panel-border rounded-sm p-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-xs font-semibold text-[#86efac] tracking-wider">
@@ -217,7 +358,7 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
           {capturingSlot === 'A' ? (
             <button
               type="button"
-              onClick={finishCapture}
+              onClick={onFinish}
               className="px-3 py-1.5 text-xs font-semibold rounded-sm bg-[#78350f] text-[#fde68a] border border-[#f59e0b] cursor-pointer"
             >
               FINISH WINDOW A ({captureBufferCount} frames)
@@ -226,7 +367,7 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
             <button
               type="button"
               disabled={mode === 'idle' || capturingSlot === 'B'}
-              onClick={() => startCapture('A')}
+              onClick={() => onStart('A')}
               className="px-3 py-1.5 text-xs font-semibold rounded-sm bg-[#123321] hover:bg-[#19472e] disabled:opacity-40 text-[#86efac] border border-[#22c55e]/50 cursor-pointer disabled:cursor-not-allowed"
             >
               {fpA ? 'RE-CAPTURE WINDOW A' : 'CAPTURE WINDOW A'}
@@ -236,7 +377,7 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
           {capturingSlot === 'B' ? (
             <button
               type="button"
-              onClick={finishCapture}
+              onClick={onFinish}
               className="px-3 py-1.5 text-xs font-semibold rounded-sm bg-[#78350f] text-[#fde68a] border border-[#f59e0b] cursor-pointer"
             >
               FINISH WINDOW B ({captureBufferCount} frames)
@@ -245,7 +386,7 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
             <button
               type="button"
               disabled={mode === 'idle' || capturingSlot === 'A'}
-              onClick={() => startCapture('B')}
+              onClick={() => onStart('B')}
               className="px-3 py-1.5 text-xs font-semibold rounded-sm bg-[#2b200b] hover:bg-[#3f2e10] disabled:opacity-40 text-[#fcd34d] border border-[#f59e0b]/50 cursor-pointer disabled:cursor-not-allowed"
             >
               {fpB ? 'RE-CAPTURE WINDOW B' : 'CAPTURE WINDOW B'}
@@ -255,11 +396,7 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
           {(fpA || fpB) && (
             <button
               type="button"
-              onClick={() => {
-                setFpA(null);
-                setFpB(null);
-                setComparison(null);
-              }}
+              onClick={onReset}
               className="px-2.5 py-1.5 text-xs rounded-sm bg-[#12181c] hover:bg-[#1a2329] text-[#9cb0a3] border border-[#24322a] cursor-pointer"
             >
               RESET WINDOWS
@@ -273,55 +410,64 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
           Input is currently IDLE. Enable Microphone or start a Synthetic Signal to capture environmental profiles.
         </div>
       )}
+    </>
+  );
+}
 
-      {/* Window Summaries */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {[
-          { label: 'WINDOW A (GREEN)', fp: fpA, accent: 'text-[#4ade80]' },
-          { label: 'WINDOW B (AMBER)', fp: fpB, accent: 'text-[#fbbf24]' },
-        ].map(({ label, fp, accent }) => (
-          <div key={label} className="panel-border rounded-sm p-3 text-xs space-y-1.5">
-            <div className={`font-semibold tracking-wider ${accent}`}>{label}</div>
-            {fp ? (
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
-                <div className="text-[#7a9384]">Source / Frames:</div>
-                <div className="text-right tabular-nums">
-                  {fp.sourceMode} / {fp.frameCount} ({fp.durationSec.toFixed(1)}s)
-                </div>
-                <div className="text-[#7a9384]">Noise Floor (10th pct):</div>
-                <div className="text-right tabular-nums">{fp.noiseFloorDbfs.toFixed(1)} dBFS</div>
-                <div className="text-[#7a9384]">Mean RMS / StdDev:</div>
-                <div className="text-right tabular-nums">
-                  {fp.meanRmsDbfs.toFixed(1)} dBFS (±{fp.rmsStdDevDb.toFixed(1)} dB)
-                </div>
-                <div className="text-[#7a9384]">Centroid / Flatness:</div>
-                <div className="text-right tabular-nums">
-                  {fp.meanCentroidHz.toFixed(0)} Hz / {fp.meanFlatness.toFixed(3)}
-                </div>
-                <div className="text-[#7a9384]">Low / Mid / High %:</div>
-                <div className="text-right tabular-nums">
-                  {(fp.meanBandEnergy.lowRatio * 100).toFixed(0)} /{' '}
-                  {(fp.meanBandEnergy.midRatio * 100).toFixed(0)} /{' '}
-                  {(fp.meanBandEnergy.highRatio * 100).toFixed(0)}%
-                </div>
+function WindowSummaries({
+  fpA,
+  fpB,
+}: {
+  fpA: EnvironmentalFingerprint | null;
+  fpB: EnvironmentalFingerprint | null;
+}) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {[
+        { label: 'WINDOW A (GREEN)', fp: fpA, accent: 'text-[#4ade80]' },
+        { label: 'WINDOW B (AMBER)', fp: fpB, accent: 'text-[#fbbf24]' },
+      ].map(({ label, fp, accent }) => (
+        <div key={label} className="panel-border rounded-sm p-3 text-xs space-y-1.5">
+          <div className={`font-semibold tracking-wider ${accent}`}>{label}</div>
+          {fp ? (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+              <div className="text-[#7a9384]">Source / Frames:</div>
+              <div className="text-right tabular-nums">
+                {fp.sourceMode} / {fp.frameCount} ({fp.durationSec.toFixed(1)}s)
               </div>
-            ) : (
-              <div className="text-[#5e7a68] py-3">Not captured yet.</div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Spectral Profile Canvas */}
-      <div className="panel-border rounded-sm overflow-hidden">
-        <div className="panel-header px-3 py-1.5 flex items-center justify-between text-[11px] text-[#86a390]">
-          <span>32-BAND LOG FREQUENCY PROFILE COMPARISON (GREEN = A, AMBER = B)</span>
-          <span>{comparing ? 'COMPUTING IN WORKER...' : 'READY'}</span>
+              <div className="text-[#7a9384]">Noise Floor (10th pct):</div>
+              <div className="text-right tabular-nums">{fp.noiseFloorDbfs.toFixed(1)} dBFS</div>
+              <div className="text-[#7a9384]">Mean RMS / StdDev:</div>
+              <div className="text-right tabular-nums">
+                {fp.meanRmsDbfs.toFixed(1)} dBFS (±{fp.rmsStdDevDb.toFixed(1)} dB)
+              </div>
+              <div className="text-[#7a9384]">Centroid / Flatness:</div>
+              <div className="text-right tabular-nums">
+                {fp.meanCentroidHz.toFixed(0)} Hz / {fp.meanFlatness.toFixed(3)}
+              </div>
+              <div className="text-[#7a9384]">Low / Mid / High %:</div>
+              <div className="text-right tabular-nums">
+                {(fp.meanBandEnergy.lowRatio * 100).toFixed(0)} /{' '}
+                {(fp.meanBandEnergy.midRatio * 100).toFixed(0)} /{' '}
+                {(fp.meanBandEnergy.highRatio * 100).toFixed(0)}%
+              </div>
+            </div>
+          ) : (
+            <div className="text-[#5e7a68] py-3">Not captured yet.</div>
+          )}
         </div>
-        <canvas ref={canvasRef} className="w-full block" style={{ height: 200 }} />
-      </div>
+      ))}
+    </div>
+  );
+}
 
-      {/* Comparison Results */}
+function ComparisonResults({
+  comparison,
+}: {
+  comparison: FingerprintComparison | null;
+}) {
+  return (
+    <>
       {comparison && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -339,14 +485,14 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
             />
             <MetricTile
               label="Noise Floor Δ (B-A)"
-              value={`${comparison.noiseFloorDeltaDb >= 0 ? '+' : ''}${comparison.noiseFloorDeltaDb.toFixed(1)}`}
+              value={signed(comparison.noiseFloorDeltaDb, 1)}
               unit="dB"
-              subtext={`Centroid Δ ${comparison.centroidDeltaHz >= 0 ? '+' : ''}${comparison.centroidDeltaHz.toFixed(0)} Hz`}
+              subtext={`Centroid Δ ${signed(comparison.centroidDeltaHz, 0)} Hz`}
             />
             <MetricTile
               label="Band Shift (L/M/H)"
-              value={`${comparison.bandDeltas.lowDeltaPct >= 0 ? '+' : ''}${comparison.bandDeltas.lowDeltaPct.toFixed(0)}%`}
-              subtext={`M:${comparison.bandDeltas.midDeltaPct >= 0 ? '+' : ''}${comparison.bandDeltas.midDeltaPct.toFixed(0)}% H:${comparison.bandDeltas.highDeltaPct >= 0 ? '+' : ''}${comparison.bandDeltas.highDeltaPct.toFixed(0)}%`}
+              value={`${signed(comparison.bandDeltas.lowDeltaPct, 0)}%`}
+              subtext={`M:${signed(comparison.bandDeltas.midDeltaPct, 0)}% H:${signed(comparison.bandDeltas.highDeltaPct, 0)}%`}
             />
           </div>
 
@@ -362,7 +508,51 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
           </div>
         </div>
       )}
+    </>
+  );
+}
 
+export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
+  const [comparison, setComparison] = useState<FingerprintComparison | null>(null);
+  const [comparing, setComparing] = useState(false);
+  const clearComparison = useCallback(() => {
+    setComparison(null);
+    setComparing(false);
+  }, []);
+  const capture = useWindowCapture(mode, latestFrame, clearComparison);
+
+  useFingerprintComparison(
+    capture.fpA,
+    capture.fpB,
+    setComparison,
+    setComparing
+  );
+
+  const liveObs = buildLiveObservations(
+    capture.fpA,
+    capture.fpB,
+    comparison
+  );
+
+  return (
+    <div className="space-y-4">
+      <CaptureControls
+        mode={mode}
+        capturingSlot={capture.capturingSlot}
+        captureBufferCount={capture.captureBufferCount}
+        fpA={capture.fpA}
+        fpB={capture.fpB}
+        onStart={capture.startCapture}
+        onFinish={capture.finishCapture}
+        onReset={capture.resetWindows}
+      />
+      <WindowSummaries fpA={capture.fpA} fpB={capture.fpB} />
+      <FingerprintCanvas
+        fpA={capture.fpA}
+        fpB={capture.fpB}
+        comparing={comparing}
+      />
+      <ComparisonResults comparison={comparison} />
       <ProtocolCard
         protocol={EXPERIMENT_PROTOCOLS.A}
         liveObservations={liveObs}
