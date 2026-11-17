@@ -257,6 +257,18 @@ export class AdaptiveNoiseFloorTracker {
   }
 }
 
+/**
+ * Returns a copy of the frame with the raw waveform stripped, so the frame
+ * can be retained for feature aggregation / session storage without keeping
+ * raw PCM samples longer than necessary.
+ */
+export function stripWaveform(frame: DspFrame): DspFrame {
+  return {
+    ...frame,
+    waveform: new Float32Array(0),
+  };
+}
+
 export interface AnalyzeFrameOptions {
   sampleRate: number;
   fftSize?: number;
@@ -338,6 +350,8 @@ export function analyzeTimeDomainFrame(
   const isActive =
     rmsDbfs >= activityThresholdDbfs || (snrDb >= 6 && rmsDbfs > -75);
 
+  // Waveform is included only for transient visualization; callers that do not
+  // need it should null it out to honor the no-PCM-retention boundary.
   const waveformCopy = new Float32Array(samples.length);
   waveformCopy.set(samples);
 

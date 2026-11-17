@@ -67,6 +67,13 @@ export class AcousticAudioEngine {
   private transformConfig: TransformConfig = { ...DEFAULT_TRANSFORM_CONFIG };
   private syntheticConfig: SyntheticSignalConfig | null = null;
 
+  // F2: Monotonically increasing operation token invalidated on stop, mode change
+  // and unmount. After every await we check ownership so a stale request cannot
+  // alter the current graph/state or install a track after cancellation.
+  private operationToken = 0;
+  private currentStream: MediaStream | null = null;
+  private currentMicSource: MediaStreamAudioSourceNode | null = null;
+
   private preTracker = new AdaptiveNoiseFloorTracker();
   private postTracker = new AdaptiveNoiseFloorTracker();
   private prevPreMag: Float32Array | null = null;

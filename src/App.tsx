@@ -4,6 +4,7 @@ import {
   DEFAULT_TRANSFORM_CONFIG,
   INITIAL_METADATA_SNAPSHOT,
 } from './audio/audioEngine';
+import { stripWaveform } from './dsp/metrics';
 import { ExposureLabView } from './components/views/ExposureLabView';
 import { LiveMonitorView } from './components/views/LiveMonitorView';
 import { ResearchNotesView } from './components/views/ResearchNotesView';
@@ -105,9 +106,12 @@ export default function App() {
       onFrame: (pre, post) => {
         const now = performance.now();
 
-        // Keep rolling ~3.5s frame buffer for Experiment B & E
+        // Keep rolling ~3.5s frame buffer for Experiment B & E.
+        // Strip raw waveform from retained frames to honor the no-PCM-retention
+        // boundary (AUDIT F1). The live monitor receives the full frame including
+        // waveform for visualization; retained/cached frames carry only features.
         const buf = recentFramesRef.current;
-        buf.push(pre);
+        buf.push(stripWaveform(pre));
         if (buf.length > 90) {
           buf.shift();
         }
@@ -122,8 +126,10 @@ export default function App() {
               (wallNow - sessionStartMsRef.current) / 1000;
             const pt = frameToSessionSample(pre, elapsed);
             activeSamplesRef.current = [...activeSamplesRef.current, pt];
+            // F1: fingerprint frames must not retain raw waveform beyond the
+            // capture window. Strip PCM before caching for the session fingerprint.
             if (sessionFingerprintFramesRef.current.length < 180) {
-              sessionFingerprintFramesRef.current.push(pre);
+              sessionFingerprintFramesRef.current.push(stripWaveform(pre));
             }
             setActiveSessionDurationSec(elapsed);
             setActiveSamples(activeSamplesRef.current);
