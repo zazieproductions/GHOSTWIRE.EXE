@@ -76,6 +76,10 @@ export default function App() {
   const [latestFrame, setLatestFrame] = useState<DspFrame | null>(null);
   const [postFrame, setPostFrame] = useState<DspFrame | null>(null);
   const [activity, setActivity] = useState<ActivityInferenceResult | null>(null);
+  // F8: bound retained frame buffers so a long-running or stalled session
+  // cannot grow without limit. 90 frames ≈ 3.5s at typical 25 fps UI commit;
+  // the shift() below already caps this, but the constant makes the bound explicit.
+  const MAX_RECENT_FRAMES = 90;
   const recentFramesRef = useRef<DspFrame[]>([]);
   const lastUiCommitMsRef = useRef<number>(0);
 
@@ -111,10 +115,10 @@ export default function App() {
         // boundary (AUDIT F1). The live monitor receives the full frame including
         // waveform for visualization; retained/cached frames carry only features.
         const buf = recentFramesRef.current;
-        buf.push(stripWaveform(pre));
-        if (buf.length > 90) {
+        if (buf.length >= MAX_RECENT_FRAMES) {
           buf.shift();
         }
+        buf.push(stripWaveform(pre));
 
         // Log numerical session sample at ~5 Hz when recording (never raw audio)
         if (recordingStateRef.current === 'recording') {
@@ -125,7 +129,11 @@ export default function App() {
               sessionElapsedAccumSecRef.current +
               (wallNow - sessionStartMsRef.current) / 1000;
             const pt = frameToSessionSample(pre, elapsed);
-            activeSamplesRef.current = [...activeSamplesRef.current, pt];
+            // F8: cap session samples at ~1 hour at 5 Hz (18000 samples).
+            // Beyond this, append is skipped rather than growing unbounded.
+            if (activeSamplesRef.current.length < 18000) {
+              activeSamplesRef.current = [...activeSamplesRef.current, pt];
+            }
             // F1: fingerprint frames must not retain raw waveform beyond the
             // capture window. Strip PCM before caching for the session fingerprint.
             if (sessionFingerprintFramesRef.current.length < 180) {

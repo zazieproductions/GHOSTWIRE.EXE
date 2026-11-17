@@ -19,6 +19,9 @@ interface ExperimentAProps {
 export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
   const [capturingSlot, setCapturingSlot] = useState<'A' | 'B' | null>(null);
   const [captureBufferCount, setCaptureBufferCount] = useState(0);
+  // F8: cap the capture buffer so a long capture cannot grow without limit.
+  // 300 frames ≈ 12s at 25 fps; Experiment A is a short A/B capture tool.
+  const MAX_CAPTURE_FRAMES = 300;
   const captureFramesRef = useRef<DspFrame[]>([]);
 
   const [fpA, setFpA] = useState<EnvironmentalFingerprint | null>(null);
@@ -28,9 +31,10 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Collect frames while capturing A or B
+  // Collect frames while capturing A or B (bounded for memory safety, F8).
   useEffect(() => {
     if (!capturingSlot || !latestFrame) return;
+    if (captureFramesRef.current.length >= MAX_CAPTURE_FRAMES) return;
     captureFramesRef.current.push(latestFrame);
     setCaptureBufferCount(captureFramesRef.current.length);
   }, [capturingSlot, latestFrame]);
