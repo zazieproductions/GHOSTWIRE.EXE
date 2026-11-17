@@ -1,0 +1,105 @@
+name: Changed Files
+
+# Detects which files changed on pull requests, pushes to main and manual
+# dispatches. The detected list is written to the job summary, a
+# documentation-only signal (`docs_any_changed`) is derived, and everything is
+# exposed as outputs — including via `workflow_call`, which the Validate
+# workflow uses to skip its code gates on documentation-only diffs.
+#
+# https://github.com/marketplace/actions/changed-files
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      code_changed:
+        description: 'true unless every changed file is documentation (Markdown, docs/ or LICENSE); also true when the diff is empty or unreadable, so validation fails toward running'
+        value: ${{ jobs.detect.outputs.code_changed }}
+      all_changed_files:
+        description: 'Space-separated paths of all changed files, relative to the repository root'
+        value: ${{ jobs.detect.outputs.all_changed_files }}
+      docs_any_changed:
+        description: 'true when at least one documentation file changed'
+        value: ${{ jobs.detect.outputs.docs_any_changed }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: changed-files-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: Detect changed files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      code_changed: ${{ steps.gate.outputs.code_changed }}
+      all_changed_files: ${{ steps.all.outputs.all_changed_files }}
+      docs_any_changed: ${{ steps.docs.outputs.any_changed }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so push events can diff against the preceding commit.
+          fetch-depth: 0
+
+      # Pinned to the full commit SHA of tag v47.0.6 (verified with
+      # `git ls-remote https://github.com/tj-actions/changed-files refs/tags/v47.0.6`),
+      # as the marketplace recommends. Mutable version tags of this action were
+      # repointed in the March 2025 supply-chain compromise (CVE-2025-30066),
+      # so bump the SHA deliberately, never to a floating ref.
+      - name: List all changed files
+        id: all
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+
+      - name: List changed documentation files
+        id: docs
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        with:
+          # Multi-line input: no surrounding quotes. `**.md` matches Markdown
+          # at any depth, including the repository root.
+          files: |
+            **.md
+            docs/**
+            LICENSE
+
+      - name: Decide whether code changed
+        id: gate
+        env:
+          ALL_CHANGED_FILES: ${{ steps.all.outputs.all_changed_files }}
+          DOCS_CHANGED_FILES: ${{ steps.docs.outputs.all_changed_files }}
+        run: |
+          set -eu
+          # Outputs are space-separated; no path in this repository contains spaces.
+          total=$(wc -w <<< "$ALL_CHANGED_FILES")
+          docs=$(wc -w <<< "$DOCS_CHANGED_FILES")
+          # Documentation-only when everything that changed is documentation.
+          # Fail toward running validation: an empty or unreadable diff
+          # (total == 0) is treated as a code change.
+          if [ "$total" -eq 0 ] || [ "$total" -ne "$docs" ]; then
+            echo "code_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "## Changed files"
+            echo
+            echo "**Total:** $total · **Documentation:** $docs"
+            echo
+            if [ "$total" -gt 0 ]; then
+              tr ' ' '\n' <<< "$ALL_CHANGED_FILES" | sed -e 's/^/- `/' -e 's/$/`/'
+              echo
+            fi
+            if [ "$total" -eq 0 ] || [ "$total" -ne "$docs" ]; then
+              echo "**Gate:** code changed — the Validate workflow runs its full gate."
+            else
+              echo "**Gate:** documentation-only change — the Validate workflow skips the code gates (npm audit still runs)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

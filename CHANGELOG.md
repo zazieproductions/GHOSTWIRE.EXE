@@ -25,6 +25,11 @@ No tagged releases yet. Everything currently on `main` is unreleased.
 - Repository automation: `slop-scan` package verification, `roast-my-codebase` pull
   request health reports, automated changelog updates on release, and path-based
   pull request labeling (`actions/labeler` with `.github/labeler.yml`).
+- Repository automation: `changed-files` change detection
+  (`.github/workflows/changed-files.yml`, SHA-pinned to the action's v47.0.6 release),
+  exposed as reusable workflow outputs and a job summary. The `Validate` workflow
+  consumes the documentation-only signal to skip its code gates on docs-only changes;
+  `npm audit` still runs and manual dispatches always run the full gate.
 - Regression coverage for capture races, persistence reload/opt-out/corruption/quota,
   feature-only retention, spectral band accounting and export injection.
 - `Validate` CI workflow (`.github/workflows/validate.yml`): type-check, lint, complexity

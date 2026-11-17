@@ -2,6 +2,12 @@ name: Validate
 
 # Core validation gate: type-check, lint, test, build, and dependency audit.
 # Runs on every push to main and on every PR. Failures block merging.
+#
+# The code gates (type-check, lint, complexity guard, tests, build) are skipped
+# when a change touches only documentation — Markdown, docs/ or LICENSE — as
+# detected by the Changed Files workflow; the job still succeeds so required
+# checks stay green for docs-only diffs. `npm audit` runs either way, and a
+# manual dispatch always runs the full gate. When in doubt, validation runs.
 
 on:
   push:
@@ -17,8 +23,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed files
+    uses: ./.github/workflows/changed-files.yml
+
   validate:
     name: Type-check · Lint · Test · Build · Audit
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -26,29 +37,58 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Code gates run on every change except a documentation-only diff.
+      # A manual dispatch always runs them; a failed or empty detection
+      # reports code_changed=true upstream, so the gate fails toward running.
+      - name: Decide whether code gates run
+        id: gate
+        env:
+          CODE_CHANGED: ${{ needs.changes.outputs.code_changed }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$CODE_CHANGED" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Docs-only change::Skipping code gates (type-check, lint, tests, build). npm audit still runs."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Node
+        if: steps.gate.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
         run: npm ci
 
       - name: Type-check (tsc -b)
+        if: steps.gate.outputs.run == 'true'
         run: npx tsc -b --noEmit
 
       - name: Lint (project type-check)
+        if: steps.gate.outputs.run == 'true'
         run: npm run lint
 
       - name: Complexity guard
+        if: steps.gate.outputs.run == 'true'
         run: npm run check:complexity
 
       - name: Tests (vitest)
+        if: steps.gate.outputs.run == 'true'
         run: npm test
 
       - name: Build (tsc -b + Vite, includes complexity guard)
+        if: steps.gate.outputs.run == 'true'
         run: npm run build
 
+      # The audit reads the lockfile and needs no install, so it stays on
+      # even for documentation-only changes.
       - name: Dependency audit (npm audit)
         run: npm audit --audit-level=high
+
+      - name: Docs-only change — code gates skipped
+        if: steps.gate.outputs.run != 'true'
+        run: echo "Only documentation changed (Markdown, docs/ or LICENSE); type-check, lint, tests and build were skipped. npm audit ran."
