@@ -18,10 +18,11 @@ No tagged releases yet. Everything currently on `main` is unreleased.
   request health reports, and automated changelog updates on release.
 - Regression coverage for capture races, persistence reload/opt-out/corruption/quota,
   feature-only retention, spectral band accounting and export injection.
-- `Validate` CI workflow (`.github/workflows/validate.yml`): type-check, tests, production
-  build and `npm audit --audit-level=high` gate every push to `main` and every pull
-  request. The build runs before the tests because the CSP verification test reads the
-  built `dist/index.html`.
+- `Validate` CI workflow (`.github/workflows/validate.yml`): type-check, lint, complexity
+  guard, tests, production build and `npm audit --audit-level=high` gate every push to
+  `main` and every pull request.
+- Build-time complexity guard (`npm run check:complexity`) plus deterministic DSP
+  regression fixtures for activity inference and privacy-leakage heuristics.
 
 ### Changed
 
@@ -39,6 +40,11 @@ No tagged releases yet. Everything currently on `main` is unreleased.
   inter-frame interval.
 - Retained frame/capture/session buffers are explicitly bounded (90 recent frames, 300
   capture frames, 18000 session samples ≈ 1h @ 5Hz) for long-running sessions.
+- Decomposed the seven critical-complexity functions into focused hooks, helpers and
+  presentation components; all Roast critical and warning complexity findings are
+  now below their thresholds.
+- Extracted application state, engine lifecycle, capture controls, session recording
+  and workspace routing into `src/app/`.
 
 ### Fixed
 
@@ -50,6 +56,7 @@ No tagged releases yet. Everything currently on `main` is unreleased.
 - Session comparisons catch worker rejections, ignore stale responses and show failures.
 - CSV exports strip control characters from metadata and quote or prefix formula-like
   cells; HTML reports also escape single quotes.
+- Made the integration-test `AudioContext` mock constructible under Vitest 5/6.
 
 ### Security
 
@@ -57,6 +64,6 @@ No tagged releases yet. Everything currently on `main` is unreleased.
   exist on the registry, or that exist with implausibly low download counts.
 - `SECURITY.md` now scopes `connect-src 'none'` and the meta-tag CSP to what they
   actually enforce, and documents the unavoidable one-frame waveform buffer.
-- Production and development CSP meta tags now include `frame-ancestors 'none'`, and a
-  test verifies the built `index.html` contains `connect-src 'none'`,
-  `frame-ancestors 'none'` and `object-src 'none'`.
+- Production and development CSP meta tags now include `frame-ancestors 'none'`, and the
+  Vite CSP transform is covered by tests asserting `connect-src 'none'`,
+  `frame-ancestors 'none'` and `object-src 'none'` on the built and dev policies.

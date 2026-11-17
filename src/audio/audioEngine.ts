@@ -44,6 +44,78 @@ export interface AudioEngineCallbacks {
   onError: (message: string | null) => void;
 }
 
+
+function hasMediaDevicesSupport(): boolean {
+  return typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices);
+}
+
+function getSupportedConstraintNames(): string[] {
+  return typeof navigator.mediaDevices.getSupportedConstraints === 'function'
+    ? Object.keys(navigator.mediaDevices.getSupportedConstraints())
+    : [];
+}
+
+function withDeviceFallback(value: string, fallback: string): string {
+  return value || fallback;
+}
+
+function isRelevantAudioDevice(device: MediaDeviceInfo): boolean {
+  return device.kind === 'audioinput' || device.kind === 'audiooutput';
+}
+
+function normalizeEnumeratedDevice(
+  device: MediaDeviceInfo
+): DeviceMetadataSnapshot['devices'][number] {
+  return {
+    deviceId: withDeviceFallback(device.deviceId, '(redacted/empty)'),
+    groupId: withDeviceFallback(device.groupId, '(redacted/empty)'),
+    kind: device.kind,
+    label: withDeviceFallback(
+      device.label,
+      '(redacted prior to microphone permission)'
+    ),
+    labelRedacted: !device.label,
+  };
+}
+
+function mapEnumeratedDevices(
+  rawDevices: MediaDeviceInfo[]
+): DeviceMetadataSnapshot['devices'] {
+  return rawDevices.filter(isRelevantAudioDevice).map(normalizeEnumeratedDevice);
+}
+
+function activeAudioTrack(stream: MediaStream | null): MediaStreamTrack | null {
+  if (!stream) return null;
+  return stream.getAudioTracks()[0] ?? null;
+}
+
+function resolveTrackSettings(
+  track: MediaStreamTrack | null,
+  previous: MediaTrackSettings | null
+): MediaTrackSettings | null {
+  return track ? track.getSettings() : previous;
+}
+
+function resolveTrackCapabilities(
+  track: MediaStreamTrack | null,
+  previous: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  if (track && typeof track.getCapabilities === 'function') {
+    return track.getCapabilities() as Record<string, unknown>;
+  }
+  return previous;
+}
+
+function stopMediaStreamTracks(stream: MediaStream): void {
+  for (const track of stream.getTracks()) {
+    try {
+      track.stop();
+    } catch {
+      // ignore already stopped tracks
+    }
+  }
+}
+
 export class AcousticAudioEngine {
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
@@ -67,6 +139,13 @@ export class AcousticAudioEngine {
   private transformConfig: TransformConfig = { ...DEFAULT_TRANSFORM_CONFIG };
   private syntheticConfig: SyntheticSignalConfig | null = null;
 
+  // F2: Monotonically increasing operation token invalidated on stop, mode change
+  // and unmount. After every await we check ownership so a stale request cannot
+  // alter the current graph/state or install a track after cancellation.
+  private operationToken = 0;
+  private currentStream: MediaStream | null = null;
+  private currentMicSource: MediaStreamAudioSourceNode | null = null;
+
   private preTracker = new AdaptiveNoiseFloorTracker();
   private postTracker = new AdaptiveNoiseFloorTracker();
   private prevPreMag: Float32Array | null = null;
@@ -77,16 +156,20 @@ export class AcousticAudioEngine {
   private metadata: DeviceMetadataSnapshot = { ...INITIAL_METADATA_SNAPSHOT };
   private callbacks: AudioEngineCallbacks;
 
-  /**
-   * Monotonic token identifying the current capture operation. Stop, mode
-   * change and unmount invalidate it, so a permission grant or resume that
-   * resolves late can never install a stream or graph the user did not ask for.
-   */
-  private operationToken = 0;
-
   constructor(settings: AppSettings, callbacks: AudioEngineCallbacks) {
     this.settings = settings;
     this.callbacks = callbacks;
+  }
+
+  private invalidatePendingCapture(): void {
+    this.operationToken += 1;
+    const pendingStream = this.currentStream;
+    if (pendingStream) {
+      stopMediaStreamTracks(pendingStream);
+      this.currentStream = null;
+    }
+    this.currentMicSource?.disconnect();
+    this.currentMicSource = null;
   }
 
   getMode(): InputMode {
@@ -259,31 +342,11 @@ export class AcousticAudioEngine {
     this.postAnalyser = null;
   }
 
-  private beginOperation(): number {
-    this.operationToken += 1;
-    return this.operationToken;
-  }
-
-  private isCurrentOperation(token: number): boolean {
-    return token === this.operationToken;
-  }
-
-  private static stopStreamTracks(stream: MediaStream | null): void {
-    if (!stream) return;
-    for (const track of stream.getTracks()) {
-      try {
-        track.stop();
-      } catch {
-        // ignore
-      }
-    }
-  }
-
   async enableMicrophone(
     constraintsOverride?: MicConstraintPreferences
   ): Promise<boolean> {
     this.stopCapture();
-    const token = this.beginOperation();
+    const operation = this.operationToken;
     this.callbacks.onError(null);
 
     if (
@@ -315,23 +378,22 @@ export class AcousticAudioEngine {
         audio: requestedConstraints,
         video: false,
       });
-
-      // The user may have stopped, switched mode or unmounted while the
-      // permission prompt was open. Stale grants are stopped immediately and
-      // must not touch the current graph or UI state.
-      if (!this.isCurrentOperation(token)) {
-        AcousticAudioEngine.stopStreamTracks(stream);
+      if (operation !== this.operationToken) {
+        stopMediaStreamTracks(stream);
         return false;
       }
 
       this.stream = stream;
+      this.currentStream = stream;
       const ctx = this.ensureAudioContext();
       if (ctx.state === 'suspended') {
         await ctx.resume();
       }
-
-      if (!this.isCurrentOperation(token)) {
-        AcousticAudioEngine.stopStreamTracks(stream);
+      if (operation !== this.operationToken) {
+        // Cancelled while the context resumed: release everything.
+        stopMediaStreamTracks(stream);
+        if (this.stream === stream) this.stream = null;
+        this.currentStream = null;
         if (this.ctx === ctx) {
           this.ctx = null;
           void ctx.close().catch(() => undefined);
@@ -341,8 +403,11 @@ export class AcousticAudioEngine {
 
       this.buildAnalysisGraph(ctx);
       this.micSource = ctx.createMediaStreamSource(stream);
+      this.currentMicSource = this.micSource;
       // IMPORTANT: Never connect micSource to ctx.destination to avoid feedback/monitoring.
       this.micSource.connect(this.preAnalyser!);
+      this.currentStream = null;
+      this.currentMicSource = null;
 
       const track = stream.getAudioTracks()[0] ?? null;
       const actualSettings = track ? track.getSettings() : null;
@@ -376,12 +441,7 @@ export class AcousticAudioEngine {
       this.startLoop();
       return true;
     } catch (err) {
-      // A failure from an operation the user already cancelled must not close
-      // or relabel a newer capture.
-      if (!this.isCurrentOperation(token)) {
-        return false;
-      }
-
+      if (operation !== this.operationToken) return false;
       const domErr = err as DOMException | Error;
       let msg = domErr?.message || 'Failed to access microphone.';
       if (domErr?.name === 'NotAllowedError' || domErr?.name === 'PermissionDeniedError') {
@@ -409,7 +469,7 @@ export class AcousticAudioEngine {
   }
 
   async inspectMetadata(triggerEnumeration: boolean): Promise<DeviceMetadataSnapshot> {
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
+    if (!hasMediaDevicesSupport()) {
       this.metadata = {
         ...this.metadata,
         errorMessage: 'navigator.mediaDevices is unavailable in this environment.',
@@ -418,11 +478,7 @@ export class AcousticAudioEngine {
       return this.metadata;
     }
 
-    const supported =
-      typeof navigator.mediaDevices.getSupportedConstraints === 'function'
-        ? Object.keys(navigator.mediaDevices.getSupportedConstraints())
-        : [];
-
+    const supported = getSupportedConstraintNames();
     let devices = this.metadata.devices;
     let enumerationTriggered = this.metadata.enumerationTriggered;
 
@@ -432,40 +488,34 @@ export class AcousticAudioEngine {
     ) {
       const rawDevices = await navigator.mediaDevices.enumerateDevices();
       enumerationTriggered = true;
-      devices = rawDevices
-        .filter((d) => d.kind === 'audioinput' || d.kind === 'audiooutput')
-        .map((d) => ({
-          deviceId: d.deviceId || '(redacted/empty)',
-          groupId: d.groupId || '(redacted/empty)',
-          kind: d.kind,
-          label: d.label || '(redacted prior to microphone permission)',
-          labelRedacted: !d.label,
-        }));
+      devices = mapEnumeratedDevices(rawDevices);
     }
 
-    const track = this.stream?.getAudioTracks()[0] ?? null;
+    const track = activeAudioTrack(this.stream);
     this.metadata = {
       ...this.metadata,
       enumerationTriggered,
       supportedConstraints: supported,
       devices,
-      actualSettings: track ? track.getSettings() : this.metadata.actualSettings,
-      capabilities:
-        track && typeof track.getCapabilities === 'function'
-          ? (track.getCapabilities() as Record<string, unknown>)
-          : this.metadata.capabilities,
+      actualSettings: resolveTrackSettings(track, this.metadata.actualSettings),
+      capabilities: resolveTrackCapabilities(track, this.metadata.capabilities),
     };
     this.callbacks.onMetadataChange(this.metadata);
     return this.metadata;
   }
 
   async startSynthetic(config: SyntheticSignalConfig): Promise<void> {
-    // Tear down any previous capture (mic stream or synthetic source) first.
-    this.stopCapture();
-    const token = this.beginOperation();
+    // If transitioning from mic, shut mic down first
+    if (this.mode === 'microphone') {
+      this.stopCapture();
+    } else {
+      this.invalidatePendingCapture();
+      this.stopSyntheticNodesOnly();
+    }
 
     this.callbacks.onError(null);
     this.syntheticConfig = { ...config };
+    const operation = this.operationToken;
 
     try {
       const ctx = this.ensureAudioContext();
@@ -473,11 +523,14 @@ export class AcousticAudioEngine {
         await ctx.resume();
       }
 
-      if (!this.isCurrentOperation(token)) return;
+      if (operation !== this.operationToken) return;
+
 
       if (!this.preAnalyser) {
         this.buildAnalysisGraph(ctx);
       }
+
+      if (operation !== this.operationToken) return;
 
       // Generate clean loopable local buffer (align sweep duration or 4 seconds)
       const bufferDurationSec =
@@ -485,29 +538,24 @@ export class AcousticAudioEngine {
           ? Math.max(1, config.sweepDurationSec)
           : 4;
       const sampleCount = Math.floor(ctx.sampleRate * bufferDurationSec);
-      const samples = generateSyntheticSamples(
-        config,
-        ctx.sampleRate,
-        sampleCount,
-        0,
-        1337
-      );
+      const samples = generateSyntheticSamples(config, ctx.sampleRate, sampleCount, 0, 1337);
 
-      const audioBuffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
-      audioBuffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
+    const audioBuffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+    audioBuffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
 
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.loop = true;
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.loop = true;
 
-      const monitorGain = ctx.createGain();
-      monitorGain.gain.value = config.monitorAudio
-        ? Math.min(0.3, Math.max(0, config.monitorGain))
-        : 0;
+    const monitorGain = ctx.createGain();
+    monitorGain.gain.value = config.monitorAudio
+      ? Math.min(0.3, Math.max(0, config.monitorGain))
+      : 0;
 
       source.connect(this.preAnalyser!);
       source.connect(monitorGain);
       monitorGain.connect(ctx.destination);
+      if (operation !== this.operationToken) return;
       source.start();
 
       this.syntheticSource = source;
@@ -521,7 +569,7 @@ export class AcousticAudioEngine {
       this.callbacks.onModeChange('synthetic');
       this.startLoop();
     } catch (err) {
-      if (!this.isCurrentOperation(token)) return;
+      if (operation !== this.operationToken) return;
       const msg =
         err instanceof Error
           ? `Unable to start the synthetic signal: ${err.message}`
@@ -558,17 +606,14 @@ export class AcousticAudioEngine {
   }
 
   stopCapture(): void {
-    // Invalidate every in-flight start so late permission grants cannot
-    // resurrect capture after an explicit stop.
-    this.beginOperation();
-
+    this.invalidatePendingCapture();
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
 
     if (this.stream) {
-      AcousticAudioEngine.stopStreamTracks(this.stream);
+      stopMediaStreamTracks(this.stream);
       this.stream = null;
     }
 

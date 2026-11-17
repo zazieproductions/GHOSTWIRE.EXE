@@ -38,15 +38,17 @@ jobs:
       - name: Type-check (tsc -b)
         run: npx tsc -b --noEmit
 
-      - name: Lint (tsc --noEmit as proxy; see F10)
-        run: npx tsc --noEmit
+      - name: Lint (project type-check)
+        run: npm run lint
 
-      - name: Build (tsc -b + Vite)
-        run: npm run build
+      - name: Complexity guard
+        run: npm run check:complexity
 
-      # The CSP verification test reads dist/index.html, so build runs before tests.
       - name: Tests (vitest)
-        run: npx vitest run
+        run: npm test
+
+      - name: Build (tsc -b + Vite, includes complexity guard)
+        run: npm run build
 
       - name: Dependency audit (npm audit)
         run: npm audit --audit-level=high

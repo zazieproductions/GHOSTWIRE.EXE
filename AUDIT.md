@@ -161,10 +161,10 @@ This GitHub-rendered task list tracks the proposed work in priority order. Items
 
 ### P2 — Reliability, delivery and usability
 
-- [x] **F8:** Bound capture and session memory, remove repeated full-array copies, and benchmark FFT/UI performance and long-running sessions on representative devices. [Details](#f8--resource-usage-lacks-explicit-limits) → Resolved 2026-11-16 via main: capped recent frames (90), capture frames (300), session samples (18000 ≈ 1h @ 5Hz); explicit constants; replaced repeated full-array copies in session sample accumulation with in-place push(). Benchmarking on representative devices remains open.
+- [x] **F8:** Bound capture and session memory, remove repeated full-array copies, and benchmark FFT/UI performance and long-running sessions on representative devices. [Details](#f8--resource-usage-lacks-explicit-limits) → Resolved 2026-11-16 via main and this branch: capped recent frames (90), capture frames (300), session samples (18000 ≈ 1h @ 5Hz); explicit constants live in `src/app/limits.ts`; in-place `push()` replaces repeated full-array copies in session sample accumulation. Experiment A also strips raw waveforms from retained capture frames and clears its buffer on finish, reset, input stop and unmount (F1). Benchmarking on representative devices remains open.
 - [x] **F9:** Handle worker, metadata and audio-start failures visibly; prevent stale comparison results and test failure/retry paths. [Details](#f9--failure-and-stale-result-handling-is-incomplete) → Resolved 2026-11-16 via PR #10
-- [x] **F10:** Add CI for project type-checking, linting, tests, build and dependency checks; expand browser and privacy lifecycle coverage and publish a validation matrix. [Details](#f10--validation-and-delivery-gates-are-incomplete) → Resolved 2026-11-16 via main: added `.github/workflows/validate.yml` running tsc -b, tsc --noEmit, vitest, npm run build, and npm audit on every push to main and PR. Browser/privacy lifecycle test expansion and validation matrix remain open.
-- [x] **F11:** Document the production/development CSP and deployment threat model precisely; test the built policy and consider stronger response headers where supported. [Details](#f11--network-and-deployment-guarantees-need-a-narrower-threat-model) → Resolved 2026-11-16 via main: added `frame-ancestors 'none'` to both production and dev CSP meta tags; added test verifying built `dist/index.html` contains `connect-src 'none'`, `frame-ancestors 'none'`, `object-src 'none'`; documented CSP and threat model already present in SECURITY.md.
+- [x] **F10:** Add CI for project type-checking, linting, tests, build and dependency checks; expand browser and privacy lifecycle coverage and publish a validation matrix. [Details](#f10--validation-and-delivery-gates-are-incomplete) → Resolved 2026-11-16 via main and this branch: `.github/workflows/validate.yml` runs `tsc -b --noEmit`, `npm run lint`, the complexity guard, `npm test`, `npm run build` and `npm audit --audit-level=high` on every push to main and PR. Browser/privacy lifecycle test expansion and validation matrix remain open.
+- [x] **F11:** Document the production/development CSP and deployment threat model precisely; test the built policy and consider stronger response headers where supported. [Details](#f11--network-and-deployment-guarantees-need-a-narrower-threat-model) → Resolved 2026-11-16 via main and this branch: added `frame-ancestors 'none'` to both production and dev CSP meta tags; a unit test verifies the Vite CSP transform for both policies without depending on a prebuilt `dist/` directory; documented CSP and threat model already present in SECURITY.md.
 - [x] **F12:** Harden CSV metadata against structural and spreadsheet injection, test exports, and audit keyboard, screen-reader, contrast and chart alternatives. [Details](#f12--export-and-accessibility-workflows-need-dedicated-review) → Resolved 2026-11-16 via PR #10
 
 When measurement or export semantics change, version them where appropriate and update the research and security documentation alongside the implementation.
@@ -173,11 +173,12 @@ When measurement or export semantics change, version them where appropriate and 
 
 | Check | Result |
 |:--|:--|
-| `npm ci` | Passed; npm reported 3 vulnerabilities. |
-| `npm run lint` | Passed; see F10 for the root TypeScript configuration caveat. |
-| `npm test` | Passed: 2 files, 13 tests. |
-| `npm run build` | Passed; includes `tsc -b` and Vite production build. |
-| `npm audit --json` | 0 vulnerabilities (updated 2026-11-16). Previously reported advisories in vitest/tinypool (@vitest/moker) were resolved by the installed patched releases; counts/advisories are time-dependent. |
+| `npm ci` | Passed; dependency audit is enforced separately in CI. |
+| `npm run lint` | Passed; project type-check via `tsc --noEmit`. |
+| `npm test` | Passed: 3 files, 15 tests. |
+| `npm run check:complexity` | Passed: 0 critical findings; maximum complexity 14. |
+| `npm run build` | Passed; runs the complexity guard via `prebuild`, then `tsc -b` and Vite production build. |
+| `npm audit --json` | 0 vulnerabilities (updated 2026-11-17). Previously reported advisories in vitest/tinypool were resolved by the installed patched releases; counts/advisories are time-dependent. |
 | `npx playwright test` | Could not execute: Chromium executable was not installed in this environment. The single browser test failed at launch, before exercising the application. |
 
 No fixes were implemented as part of the initial audit. Findings involving races, performance, accessibility, or browser-specific behavior should be confirmed with targeted tests in their intended environments.
@@ -194,7 +195,20 @@ No fixes were implemented as part of the initial audit. Findings involving races
 
 The integration tests previously used arrow functions as `AudioContext` mocks; the installed Vitest build rejects arrow implementations as constructors, so the mocks were made constructible. That is a test-harness fix, not a change in application behavior.
 
-### Post-merge verification (2026-11-17, merge of PR #11 into current `main`)
+### Post-merge verification (2026-11-17, two merges of PR #11 into current `main`)
+
+First merge (PR #11 vs F6/F8/F10/F11 remediation) is documented below as the original post-merge table. A second merge of PR #11 into `main` @ `a007822` (PR #9, "complexity refactor") was required the same day; the refactor decomposition of `App.tsx` into `src/app/*` modules was kept, and PR #11's behavior fixes were re-ported onto that structure: session provenance freeze/auto-finalise on source change/auto-pause on input loss (`useGhostwireState`, `useAppControls`, `useAudioEngine`), consent-gated persistence via `utils/sessionStorage` (`useSessionPersistence`), F9 comparison-error surfacing and F1 PCM-free buffers (`App.tsx` shell unchanged), disjoint bin-to-band fingerprinting with comparability gating (`dsp/analysis.ts` decomposed helpers kept), F4 provenance notices rendered in `SessionAnalysisView`, and feature projections in `ExperimentA`. The CSP verification test no longer reads `dist/index.html` (it exercises `injectCspMeta` directly), so tests run before the build in CI again.
+
+| Check | Result |
+|:--|:--|
+| `npx tsc -b --noEmit` | Passed after the second merge. |
+| `npm test` | Passed: 5 files, 33 tests (incl. PR #9's `dsp/analysis.regression.test.ts` baseline). |
+| `npm run build` | Passed (`tsc -b` + `check:complexity` + Vite production build; 0 critical complexity findings, max=16). |
+| `npm run lint` | Passed (`tsc --noEmit`). |
+| `npm audit --audit-level=high` | 0 vulnerabilities. |
+| `npx playwright test` | Not run: no browser executable in this environment. |
+
+### Post-merge verification (2026-11-17, first merge of PR #11 into `main` @ b92175d)
 
 | Check | Result |
 |:--|:--|

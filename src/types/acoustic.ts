@@ -276,3 +276,12 @@ export interface ScientificProtocol {
   confoundingFactors: string[];
   reproducibilityNotes: string;
 }
+
+/** Session metadata frozen when recording starts, so later source or setting changes cannot relabel it. */
+export interface SessionProvenance {
+  name: string;
+  startedAtIso: string;
+  sourceMode: InputMode;
+  sampleRate: number | null;
+  fftSize: number;
+}

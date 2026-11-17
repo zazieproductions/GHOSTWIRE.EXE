@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import { buildMeasurementSession } from '../utils/exportSession';
-import path from 'node:path';
+import { contentSecurityPolicy, injectCspMeta } from '../config/csp';
 
 const STORAGE_KEY_SESSIONS = 'ghostwire.exe:sessions:v1';
 const STORAGE_KEY_CONSENT = 'ghostwire.exe:sessions:consent:v1';
@@ -86,17 +86,23 @@ function createMockAudioContext(sampleRate = 48000) {
   };
 }
 
-describe('GHOSTWIRE.EXE CSP & built-policy verification', () => {
-  it('embeds a restrictive CSP meta tag in the built HTML', async () => {
-    // The Vite cspPlugin injects a CSP meta tag in place of the
-    // <!-- GHOSTWIRE_CSP --> placeholder during build.
-    // Dynamic import avoids node:fs at compile time in the jsdom test env.
-    const { readFileSync } = await import('node:fs');
-    const html = readFileSync(path.resolve(__dirname, '../../dist/index.html'), 'utf8');
-    expect(html).toContain('<meta http-equiv="Content-Security-Policy"');
-    expect(html).toContain("connect-src 'none'");
-    expect(html).toContain("frame-ancestors 'none'");
-    expect(html).toContain("object-src 'none'");
+describe('GHOSTWIRE.EXE CSP policy', () => {
+  it('injects restrictive directives into the built and dev HTML policies', () => {
+    // AUDIT F11: test the Vite transform directly so the gate does not depend
+    // on a previously generated dist/ directory.
+    const builtHtml = injectCspMeta('<html><!-- GHOSTWIRE_CSP --></html>', true);
+    expect(builtHtml).toContain('<meta http-equiv="Content-Security-Policy"');
+    expect(builtHtml).toContain("connect-src 'none'");
+    expect(builtHtml).toContain("frame-ancestors 'none'");
+    expect(builtHtml).toContain("object-src 'none'");
+
+    const devHtml = injectCspMeta('<html><!-- GHOSTWIRE_CSP --></html>', false);
+    expect(devHtml).toContain("frame-ancestors 'none'");
+    expect(devHtml).toContain("object-src 'none'");
+    expect(devHtml).toContain("connect-src 'self' ws: wss:");
+
+    expect(contentSecurityPolicy(true)).toContain("connect-src 'none'");
+    expect(contentSecurityPolicy(false)).toContain("connect-src 'self' ws: wss:");
   });
 });
 
@@ -145,7 +151,7 @@ describe('GHOSTWIRE.EXE Privacy, Microphone Lifecycle & Synthetic Integration', 
     });
 
     // Must be constructible: the engine calls `new AudioContext()`.
-    const MockAudioCtx = vi.fn(function () {
+    const MockAudioCtx = vi.fn(function MockAudioContext() {
       return createMockAudioContext();
     });
     Object.defineProperty(window, 'AudioContext', {

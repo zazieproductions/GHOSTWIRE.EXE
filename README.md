@@ -172,7 +172,8 @@ npm run dev               # Vite development server (0.0.0.0:5173)
 npm run lint              # TypeScript check
 npm test                  # Vitest unit and integration tests
 npm run test:watch        # Vitest watch mode
-npm run build             # TypeScript project build + Vite static bundle
+npm run check:complexity  # Fail on critical cyclomatic complexity (>= 25)
+npm run build             # Complexity guard + TypeScript build + Vite bundle
 npm run preview           # Serve dist/ (0.0.0.0:4173)
 npx playwright install chromium
 npm run test:e2e           # Playwright against the production preview
@@ -184,7 +185,8 @@ Build before running E2E: Playwright starts `npm run preview` and uses Chromium 
 
 ```text
 src/
-├── App.tsx                  # UI state, engine lifecycle and session collection
+├── App.tsx                  # UI shell and controller composition
+├── app/                     # State hooks, engine lifecycle, controls and chrome
 ├── audio/audioEngine.ts     # Web Audio graph, capture and frame loop
 ├── dsp/                     # FFT, metrics, analysis and synthetic generation
 ├── workers/                 # Comparison worker and synchronous fallback
@@ -195,6 +197,7 @@ src/
 ├── types/acoustic.ts        # Shared signal and session types
 ├── utils/exportSession.ts   # CSV, JSON and HTML exports
 └── __tests__/               # App integration tests
+scripts/                     # Deployment complexity guard
 e2e/                         # Playwright browser tests
 ```
 
@@ -214,7 +217,7 @@ Three GitHub Actions run alongside the commands above:
 | [`Roast My Codebase`](./.github/workflows/roast.yml) | pull requests | Posts an advisory code-health comment (complexity, dead exports, tracked secrets, missing tests). It does not gate merges. |
 | [`Update Changelog`](./.github/workflows/update-changelog.yml) | published releases | Prepends release notes to [`CHANGELOG.md`](./CHANGELOG.md) and advances the `Unreleased` compare link. |
 
-Only the changelog workflow requests write access (`contents: write`); the scanning workflows run with a read-only token. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`.
+Only the changelog workflow requests write access (`contents: write`); the scanning workflows run with a read-only token. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`. `npm run build` additionally fails on any function at or above the Roast critical complexity threshold (25), so critical complexity findings cannot reach a production bundle.
 
 ## License
 
