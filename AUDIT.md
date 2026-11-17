@@ -10,6 +10,25 @@ The project has a useful defensive foundation: explicit microphone activation, a
 
 **Priority key:** P0 = privacy/safety trust boundary; P1 = significant data loss, measurement validity, or development security risk; P2 = reliability or operational gap. Priorities are project-specific, not CVSS ratings.
 
+### Remediation status (2026-11-17)
+
+All P0 findings and tractable P1/P2 findings have been resolved and covered by regression tests. Status: ✅ implemented and verified, ◐ partially addressed, ☐ open.
+
+| ID | Status | Change | Remaining work |
+|:--|:--:|:--|:--|
+| F1 | ✅ | Live frames are projected to `ActivityFrame` (scalars) and `FeatureFrame` (derived spectra, no PCM) before anything retains them; capture buffers are cleared on finish, reset, stop, clear and unmount; a test asserts exports contain no waveform or spectral keys. | — |
+| F2 | ✅ | A monotonic operation token is invalidated by stop, mode change and unmount; every `await` is followed by an ownership check that stops stale streams; superseded rejections cannot tear down a newer capture; the enable control shows a pending state. Covered by race tests. | — |
+| F3 | ✅ | A consent marker (`ghostwire.exe:sessions:consent:v1`) drives restore-on-mount instead of the default setting; writes never delete; opt-out and "Clear All Session Data" are the only deletions; stored data is validated; quota and parse failures are surfaced instead of swallowed, and unreadable data is left intact. | — |
+| F4 | ✅ | Session provenance (source, sample rate, FFT size, label, start time) is frozen at start; a source change auto-finalises the session, input loss auto-pauses it, resume requires the same source, and fingerprint frames from a different analysis grid are excluded and counted. Missing sample rates are stored as `null` rather than fabricated. | Per-sample timestamps, gap segmentation and a representative fingerprint aggregate across long sessions are still open. |
+| F5 | ✅ | Each FFT bin is assigned to exactly one log band (disjoint integration via the bin→band map), silent windows carry no spectral evidence, mismatched sample rates/FFT sizes/band counts are declared non-comparable instead of scored, and the confidence label is documented as a frame-count heuristic. Covered by band-map, power-accounting and comparability tests. | Calibration against controlled repeatability datasets remains future validation work. |
+| F6 | ✅ | Time-aware envelopes with per-frame timestamps; gaps larger than ~3× the median inter-frame interval split the envelope and only the longest continuous segment is analyzed. | — |
+| F7 | ✅ | The refreshed lockfile reports 0 advisories (`npm audit`: 0 vulnerabilities, 2026-11-16), and `npm audit --audit-level=high` runs in the `Validate` CI workflow on every PR and push to main. | — |
+| F8 | ◐ | Buffers are bounded: recent frames (90), capture frames (300), session samples (18000 ≈ 1h @ 5Hz); the per-sample full-array copy was replaced with an in-place push. | Benchmarking FFT/UI performance on representative devices remains open. |
+| F9 | ✅ | Fingerprint and session comparisons now catch rejections, ignore stale responses and display the failure. | Permanent worker fallback and device-enumeration error handling are open. |
+| F10 | ◐ | The suite grew from 13 to 33 tests across 5 files covering capture races, persistence reload/opt-out/corruption/quota, retention, band accounting, DSP regression fixtures and export safety; `Validate` CI (tsc, lint, complexity guard, tests, build, audit) gates every PR and push to main. | Cross-browser E2E matrix and a published validation matrix remain open. |
+| F11 | ✅ | `SECURITY.md` scopes `connect-src 'none'` and the meta-tag CSP to what they actually enforce; `frame-ancestors 'none'` added to production and dev CSP meta tags; unit tests verify the CSP meta transform contains `connect-src 'none'`, `frame-ancestors 'none'` and `object-src 'none'`; CSP and threat model documented. | Server-delivered headers and deployment testing remain open. |
+| F12 | ✅ | CSV metadata is control-character sanitised and data cells are quoted and formula-prefixed; HTML escaping covers single quotes; tests cover injection and round-trip structure. | Accessibility review (keyboard, screen reader, contrast, chart alternatives) remains open. |
+
 | ID | Priority | Finding | Fundamental missing capability |
 |:--|:--:|:--|:--|
 | F1 | P0 | Raw waveform copies retained in buffers | Data minimization and accurate retention guarantees |
@@ -125,28 +144,28 @@ The project has a useful defensive foundation: explicit microphone activation, a
 
 ## Remediation checklist
 
-This GitHub-rendered task list tracks the proposed work in priority order. All items are open; see the linked findings for evidence and qualification. Check an item only after implementation, documentation and the relevant verification are complete. Findings are a point-in-time assessment; reassess applicability as the code changes.
+This GitHub-rendered task list tracks the proposed work in priority order. Items are checked only after implementation, documentation and the relevant verification are complete; partially addressed items stay open with a status note above. Findings are a point-in-time assessment; reassess applicability as the code changes.
 
 ### P0 — Capture and privacy boundaries
 
-- [x] **F1:** Separate transient waveform data from feature-only activity and fingerprint buffers; clear capture buffers on finish, stop, reset and unmount. Test retention and ensure saved sessions and exports contain no PCM. Document the short-lived buffers required for analysis and display. [Details](#f1--raw-waveform-data-is-retained-beyond-immediate-analysis) → Resolved 2026-11-16 via PR #8
-- [x] **F2:** Make asynchronous microphone start cancellation-safe across stop, mode changes, overlapping requests and unmount; stop stale streams and expose pending/error states. Test deferred grants, rejections and track termination. [Details](#f2--capture-cancellation-is-not-race-safe) → Resolved 2026-11-16 via PR #8
+- [x] **F1:** Separate transient waveform data from feature-only activity and fingerprint buffers; clear capture buffers on finish, stop, reset and unmount. Test retention and ensure saved sessions and exports contain no PCM. Document the short-lived buffers required for analysis and display. [Details](#f1--raw-waveform-data-is-retained-beyond-immediate-analysis) → Resolved: feature-only `ActivityFrame`/`FeatureFrame` projections, capture buffers released on finish/stop/reset/unmount
+- [x] **F2:** Make asynchronous microphone start cancellation-safe across stop, mode changes, overlapping requests and unmount; stop stale streams and expose pending/error states. Test deferred grants, rejections and track termination. [Details](#f2--capture-cancellation-is-not-race-safe) → Resolved: operation-token ownership checks after every `await` in microphone and synthetic startup
 
 ### P1 — Data integrity and research validity
 
-- [x] **F3:** Fix opt-in session restoration and intentional deletion semantics; surface storage failures and validate stored data. Test reload, opt-out, clear, malformed data and quota errors. [Details](#f3--opt-in-persistence-is-deleted-on-reload) → Resolved 2026-11-16 via PR #8
-- [x] **F4:** Capture session provenance at start and segment or stop sessions on source, sample-rate or configuration changes. Record gaps and accurately describe the fingerprint sampling interval; test transitions and long sessions. [Details](#f4--session-provenance-and-lifecycle-are-not-stable) → Resolved 2026-11-16 via PR #8
-- [x] **F5:** Make spectral band integration non-overlapping, handle silence, and reject or rebin incompatible frequency grids. Label confidence as a heuristic and test power accounting and controlled comparisons. [Details](#f5--fingerprints-do-not-ensure-comparable-frequency-bands) → Resolved 2026-11-16 via PR #10
+- [x] **F3:** Fix opt-in session restoration and intentional deletion semantics; surface storage failures and validate stored data. Test reload, opt-out, clear, malformed data and quota errors. [Details](#f3--opt-in-persistence-is-deleted-on-reload) → Resolved: explicit consent marker driving restore-on-mount plus validated, observable storage writes (`src/utils/sessionStorage.ts`)
+- [x] **F4:** Capture session provenance at start and segment or stop sessions on source, sample-rate or configuration changes. Record gaps and accurately describe the fingerprint sampling interval; test transitions and long sessions. [Details](#f4--session-provenance-and-lifecycle-are-not-stable) → Resolved: `SessionProvenance` frozen at capture start, auto-pause on input loss, auto-finalise on source change, and mismatched analysis grids excluded
+- [x] **F5:** Make spectral band integration non-overlapping, handle silence, and reject or rebin incompatible frequency grids. Label confidence as a heuristic and test power accounting and controlled comparisons. [Details](#f5--fingerprints-do-not-ensure-comparable-frequency-bands) → Resolved: disjoint bin→band map (`buildLogBandBinMap`), silent-window handling, and explicit comparability checks (`comparable` / `incompatibilityReasons`)
 - [x] **F6:** Use time-aware, regularly sampled activity envelopes; detect gaps and suppress unsupported cadence estimates. Test known signals with jitter, dropped frames and backgrounding. [Details](#f6--activity-cadence-assumes-evenly-spaced-animation-frames) → Resolved 2026-11-16 via PR #10
 - [x] **F7:** Review the test dependency advisories, upgrade to compatible patched releases, refresh the lockfile and rerun the full validation suite. Establish recurring dependency scanning. [Details](#f7--development-dependencies-have-known-advisories) → Resolved 2026-11-16: `npm audit` now reports 0 vulnerabilities; advisories in vitest/tinypool (@vitest/moker) resolved by installed patched releases.
 
 ### P2 — Reliability, delivery and usability
 
 - [x] **F8:** Bound capture and session memory, remove repeated full-array copies, and benchmark FFT/UI performance and long-running sessions on representative devices. [Details](#f8--resource-usage-lacks-explicit-limits) → Resolved 2026-11-16 via main and this branch: capped recent frames (90), capture frames (300), session samples (18000 ≈ 1h @ 5Hz); explicit constants live in `src/app/limits.ts`; in-place `push()` replaces repeated full-array copies in session sample accumulation. Experiment A also strips raw waveforms from retained capture frames and clears its buffer on finish, reset, input stop and unmount (F1). Benchmarking on representative devices remains open.
-- [x] **F9:** Handle worker, metadata and audio-start failures visibly; prevent stale comparison results and test failure/retry paths. [Details](#f9--failure-and-stale-result-handling-is-incomplete) → Resolved 2026-11-16 via PR #10
+- [x] **F9:** Handle worker, metadata and audio-start failures visibly; prevent stale comparison results and test failure/retry paths. [Details](#f9--failure-and-stale-result-handling-is-incomplete) → Resolved: request-ID stale guards and visible error alerts in Experiment A and Session Analysis
 - [x] **F10:** Add CI for project type-checking, linting, tests, build and dependency checks; expand browser and privacy lifecycle coverage and publish a validation matrix. [Details](#f10--validation-and-delivery-gates-are-incomplete) → Resolved 2026-11-16 via main and this branch: `.github/workflows/validate.yml` runs `tsc -b --noEmit`, `npm run lint`, the complexity guard, `npm test`, `npm run build` and `npm audit --audit-level=high` on every push to main and PR. Browser/privacy lifecycle test expansion and validation matrix remain open.
 - [x] **F11:** Document the production/development CSP and deployment threat model precisely; test the built policy and consider stronger response headers where supported. [Details](#f11--network-and-deployment-guarantees-need-a-narrower-threat-model) → Resolved 2026-11-16 via main and this branch: added `frame-ancestors 'none'` to both production and dev CSP meta tags; a unit test verifies the Vite CSP transform for both policies without depending on a prebuilt `dist/` directory; documented CSP and threat model already present in SECURITY.md.
-- [x] **F12:** Harden CSV metadata against structural and spreadsheet injection, test exports, and audit keyboard, screen-reader, contrast and chart alternatives. [Details](#f12--export-and-accessibility-workflows-need-dedicated-review) → Resolved 2026-11-16 via PR #10
+- [x] **F12:** Harden CSV metadata against structural and spreadsheet injection, test exports, and audit keyboard, screen-reader, contrast and chart alternatives. [Details](#f12--export-and-accessibility-workflows-need-dedicated-review) → Resolved: control-character sanitisation (`sanitizeCsvText`), formula-injection prefixing (`toCsvField`), and single-quote HTML escaping
 
 When measurement or export semantics change, version them where appropriate and update the research and security documentation alongside the implementation.
 
@@ -162,4 +181,16 @@ When measurement or export semantics change, version them where appropriate and 
 | `npm audit --json` | 0 vulnerabilities (updated 2026-11-17). Previously reported advisories in vitest/tinypool were resolved by the installed patched releases; counts/advisories are time-dependent. |
 | `npx playwright test` | Could not execute: Chromium executable was not installed in this environment. The single browser test failed at launch, before exercising the application. |
 
-No fixes were implemented as part of this audit. Findings involving races, performance, accessibility, or browser-specific behavior should be confirmed with targeted tests in their intended environments.
+No fixes were implemented as part of the initial audit. Findings involving races, performance, accessibility, or browser-specific behavior should be confirmed with targeted tests in their intended environments.
+
+### Post-remediation verification (2026-11-17)
+
+| Check | Result |
+|:--|:--|
+| `npx tsc -b --noEmit` | Passed. |
+| `npm run lint` | Passed (`tsc --noEmit`). |
+| `npm run check:complexity` | Passed: 0 critical or warning complexity findings (max = 14 across 283 functions). |
+| `npm test` | Passed: 5 files, 33 tests (including capture-race, consent-persistence, PCM-free retention, disjoint band-accounting, DSP regression, and CSV/HTML export-safety suites). |
+| `npm run build` | Passed (`check:complexity` + `tsc -b` + Vite production build). |
+| `npm audit --audit-level=high` | 0 vulnerabilities. |
+| `npx playwright test` | Not run: no browser executable in this environment. |

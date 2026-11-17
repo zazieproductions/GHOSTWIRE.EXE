@@ -78,6 +78,7 @@ function SessionsWorkspace({ state, controls }: WorkspaceProps) {
       activeSamples={state.activeSamples}
       savedSessions={state.savedSessions}
       persistLocally={state.settings.persistSessionsLocally}
+      sessionNotice={state.sessionNotice}
       onChangeSessionName={state.setActiveSessionName}
       onStartSession={controls.startSession}
       onPauseToggle={controls.pauseToggle}

@@ -6,20 +6,21 @@ import {
 } from '../audio/audioEngine';
 import { DEFAULT_SYNTHETIC_CONFIG } from '../dsp/synthetic';
 import type {
+  ActivityFrame,
   ActivityInferenceResult,
   AppSettings,
   DeviceMetadataSnapshot,
   DspFrame,
   ExperimentId,
+  FeatureFrame,
   InputMode,
   MeasurementSession,
   NavTab,
+  SessionProvenance,
   SessionSamplePoint,
   SyntheticSignalConfig,
   TransformConfig,
 } from '../types/acoustic';
-
-export const STORAGE_KEY_SESSIONS = 'ghostwire.exe:sessions:v1';
 
 const DEFAULT_SETTINGS: AppSettings = {
   fftSize: 2048,
@@ -63,7 +64,8 @@ export function useGhostwireState() {
   const [latestFrame, setLatestFrame] = useState<DspFrame | null>(null);
   const [postFrame, setPostFrame] = useState<DspFrame | null>(null);
   const [activity, setActivity] = useState<ActivityInferenceResult | null>(null);
-  const recentFramesRef = useRef<DspFrame[]>([]);
+  // Activity buffer holds scalar-derived projections only — deliberately no PCM.
+  const recentFramesRef = useRef<ActivityFrame[]>([]);
   const lastUiCommitMsRef = useRef<number>(0);
 
   const [recordingState, setRecordingState] = useState<
@@ -73,6 +75,7 @@ export function useGhostwireState() {
   const [activeSessionDurationSec, setActiveSessionDurationSec] = useState(0);
   const [activeSamples, setActiveSamples] = useState<SessionSamplePoint[]>([]);
   const [savedSessions, setSavedSessions] = useState<MeasurementSession[]>([]);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
 
   const recordingStateRef = useRef(recordingState);
   recordingStateRef.current = recordingState;
@@ -80,7 +83,13 @@ export function useGhostwireState() {
   const sessionElapsedAccumSecRef = useRef<number>(0);
   const lastSessionSampleMsRef = useRef<number>(0);
   const activeSamplesRef = useRef<SessionSamplePoint[]>([]);
-  const sessionFingerprintFramesRef = useRef<DspFrame[]>([]);
+  // Fingerprint frames keep derived spectra only: no time-domain PCM.
+  const sessionFingerprintFramesRef = useRef<FeatureFrame[]>([]);
+  // Provenance of the recording in progress, frozen when recording starts.
+  const sessionProvenanceRef = useRef<SessionProvenance | null>(null);
+  const finalizeSessionRef = useRef<(notice?: string) => void>(() => {});
+  const savedSessionsRef = useRef<MeasurementSession[]>([]);
+  savedSessionsRef.current = savedSessions;
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -113,6 +122,8 @@ export function useGhostwireState() {
     lastUiCommitMsRef,
     recordingState,
     setRecordingState,
+    sessionNotice,
+    setSessionNotice,
     activeSessionName,
     setActiveSessionName,
     activeSessionDurationSec,
@@ -127,6 +138,9 @@ export function useGhostwireState() {
     lastSessionSampleMsRef,
     activeSamplesRef,
     sessionFingerprintFramesRef,
+    sessionProvenanceRef,
+    finalizeSessionRef,
+    savedSessionsRef,
     settingsRef,
     engineRef,
   };

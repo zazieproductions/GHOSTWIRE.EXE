@@ -4,7 +4,7 @@ import {
   type AudioEngineCallbacks,
 } from '../audio/audioEngine';
 import { inferBroadActivity } from '../dsp/analysis';
-import { stripWaveform } from '../dsp/metrics';
+import { toActivityFrame, toFeatureFrame } from '../dsp/metrics';
 import type { DspFrame } from '../types/acoustic';
 import {
   MAX_RECENT_FRAMES,
@@ -28,13 +28,12 @@ function recordSessionSample(state: GhostwireState, frame: DspFrame): void {
     if (state.activeSamplesRef.current.length < MAX_SESSION_SAMPLES) {
       state.activeSamplesRef.current.push(point);
     }
-    // AUDIT F1: fingerprint frames must not retain raw waveform beyond the
-    // capture window. Strip PCM before caching for the session fingerprint.
+    // AUDIT F1: fingerprint frames keep derived spectra only, never PCM.
     if (
       state.sessionFingerprintFramesRef.current.length <
       MAX_SESSION_FINGERPRINT_FRAMES
     ) {
-      state.sessionFingerprintFramesRef.current.push(stripWaveform(frame));
+      state.sessionFingerprintFramesRef.current.push(toFeatureFrame(frame));
     }
     state.setActiveSessionDurationSec(elapsed);
     state.setActiveSamples(state.activeSamplesRef.current);
@@ -45,16 +44,15 @@ function createFrameCallback(state: GhostwireState): AudioEngineCallbacks['onFra
   return (pre, post) => {
     const now = performance.now();
 
-    // Keep rolling ~3.5s frame buffer for Experiment B & E. Strip raw
-    // waveform from retained frames to honor the no-PCM-retention boundary
-    // (AUDIT F1). The live monitor still receives the full frame below.
+    // Keep rolling ~3.5s feature buffer for Experiment B & E.
+    // ActivityFrame carries scalar-derived features only — no PCM, no spectra.
     const buffer = state.recentFramesRef.current;
     // AUDIT F8: shift before appending so the retained buffer never exceeds
     // its frame budget, even transiently.
     if (buffer.length >= MAX_RECENT_FRAMES) {
       buffer.shift();
     }
-    buffer.push(stripWaveform(pre));
+    buffer.push(toActivityFrame(pre));
 
     // Log numerical session sample at ~5 Hz when recording (never raw audio)
     if (state.recordingStateRef.current === 'recording') {
@@ -86,6 +84,27 @@ function createModeChangeCallback(
       state.setPostFrame(null);
       state.setActivity(null);
       state.recentFramesRef.current = [];
+      if (state.recordingStateRef.current === 'recording') {
+        // Freeze elapsed time rather than billing quiet wall-clock time to
+        // the measurement, and keep the samples for an explicit save.
+        state.sessionElapsedAccumSecRef.current +=
+          (Date.now() - state.sessionStartMsRef.current) / 1000;
+        state.sessionStartMsRef.current = Date.now();
+        state.setRecordingState('paused');
+        state.setSessionNotice(
+          'Session auto-paused: the input source stopped. Restart the same source to resume, or STOP & SAVE to finalise it.'
+        );
+      }
+    } else if (
+      state.recordingStateRef.current !== 'idle' &&
+      state.sessionProvenanceRef.current &&
+      nextMode !== state.sessionProvenanceRef.current.sourceMode
+    ) {
+      // A recording belongs to the source it started with. Switching source
+      // finalises it instead of silently mixing provenance.
+      state.finalizeSessionRef.current(
+        'Session auto-finalised: the input source changed, so it was saved with its original provenance before the new source started.'
+      );
     }
   };
 }
@@ -118,6 +137,12 @@ export function useAudioEngine(state: GhostwireState): void {
       engine.stopCapture();
       dspWorkerClient.dispose();
       state.engineRef.current = null;
+      // Release every retained buffer on unmount.
+      state.recentFramesRef.current = [];
+      state.sessionFingerprintFramesRef.current = [];
+      state.activeSamplesRef.current = [];
+      state.sessionProvenanceRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }

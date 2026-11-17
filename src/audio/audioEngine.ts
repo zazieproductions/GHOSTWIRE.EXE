@@ -388,7 +388,17 @@ export class AcousticAudioEngine {
       const ctx = this.ensureAudioContext();
       if (ctx.state === 'suspended') {
         await ctx.resume();
-        if (operation !== this.operationToken) return false;
+      }
+      if (operation !== this.operationToken) {
+        // Cancelled while the context resumed: release everything.
+        stopMediaStreamTracks(stream);
+        if (this.stream === stream) this.stream = null;
+        this.currentStream = null;
+        if (this.ctx === ctx) {
+          this.ctx = null;
+          void ctx.close().catch(() => undefined);
+        }
+        return false;
       }
 
       this.buildAnalysisGraph(ctx);
@@ -505,23 +515,30 @@ export class AcousticAudioEngine {
 
     this.callbacks.onError(null);
     this.syntheticConfig = { ...config };
+    const operation = this.operationToken;
 
-    const ctx = this.ensureAudioContext();
-    if (ctx.state === 'suspended') {
-      await ctx.resume();
-    }
+    try {
+      const ctx = this.ensureAudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
 
-    if (!this.preAnalyser) {
-      this.buildAnalysisGraph(ctx);
-    }
+      if (operation !== this.operationToken) return;
 
-    // Generate clean loopable local buffer (align sweep duration or 4 seconds)
-    const bufferDurationSec =
-      config.type === 'sweep'
-        ? Math.max(1, config.sweepDurationSec)
-        : 4;
-    const sampleCount = Math.floor(ctx.sampleRate * bufferDurationSec);
-    const samples = generateSyntheticSamples(config, ctx.sampleRate, sampleCount, 0, 1337);
+
+      if (!this.preAnalyser) {
+        this.buildAnalysisGraph(ctx);
+      }
+
+      if (operation !== this.operationToken) return;
+
+      // Generate clean loopable local buffer (align sweep duration or 4 seconds)
+      const bufferDurationSec =
+        config.type === 'sweep'
+          ? Math.max(1, config.sweepDurationSec)
+          : 4;
+      const sampleCount = Math.floor(ctx.sampleRate * bufferDurationSec);
+      const samples = generateSyntheticSamples(config, ctx.sampleRate, sampleCount, 0, 1337);
 
     const audioBuffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
     audioBuffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
@@ -535,21 +552,31 @@ export class AcousticAudioEngine {
       ? Math.min(0.3, Math.max(0, config.monitorGain))
       : 0;
 
-    source.connect(this.preAnalyser!);
-    source.connect(monitorGain);
-    monitorGain.connect(ctx.destination);
-    source.start();
+      source.connect(this.preAnalyser!);
+      source.connect(monitorGain);
+      monitorGain.connect(ctx.destination);
+      if (operation !== this.operationToken) return;
+      source.start();
 
-    this.syntheticSource = source;
-    this.monitorGainNode = monitorGain;
+      this.syntheticSource = source;
+      this.monitorGainNode = monitorGain;
 
-    this.preTracker.reset();
-    this.postTracker.reset();
-    this.prevPreMag = null;
-    this.prevPostMag = null;
-    this.mode = 'synthetic';
-    this.callbacks.onModeChange('synthetic');
-    this.startLoop();
+      this.preTracker.reset();
+      this.postTracker.reset();
+      this.prevPreMag = null;
+      this.prevPostMag = null;
+      this.mode = 'synthetic';
+      this.callbacks.onModeChange('synthetic');
+      this.startLoop();
+    } catch (err) {
+      if (operation !== this.operationToken) return;
+      const msg =
+        err instanceof Error
+          ? `Unable to start the synthetic signal: ${err.message}`
+          : 'Unable to start the synthetic signal.';
+      this.stopCapture();
+      this.callbacks.onError(msg);
+    }
   }
 
   updateSyntheticMonitor(monitorAudio: boolean, monitorGain: number): void {

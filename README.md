@@ -110,7 +110,7 @@ sequenceDiagram
     Engine->>Browser: Stop tracks, disconnect nodes, close context
 ```
 
-Synthetic input uses the same analysis graph, without `getUserMedia`. Session samples are collected at approximately 5 Hz while recording. Closing or reloading the page discards in-memory data; persistence and exports are separate user actions.
+Synthetic input uses the same analysis graph, without `getUserMedia`. Session samples are collected at approximately 5 Hz while recording. Only the frame currently displayed carries a time-domain copy: rolling activity, fingerprint and experiment buffers hold derived features, and every capture buffer is released on finish, stop, reset and unmount. Closing or reloading the page discards in-memory data; persistence and exports are separate user actions.
 
 ## DSP reference
 
@@ -156,8 +156,8 @@ Each experiment includes its research question, procedure, measurements, limitat
 
 | State / boundary | Behavior |
 |:--|:--|
-| 🟢 **Default** | Microphone access is user-initiated; session data is held in memory. No raw PCM recordings are saved. |
-| 🟡 **Explicit action** | Device enumeration, local session persistence and export require user action. Persistence uses `ghostwire.exe:sessions:v1` in `localStorage`. |
+| 🟢 **Default** | Microphone access is user-initiated; session data is held in memory. Retained buffers are feature-only, and the one raw waveform copy belongs to the frame currently on screen for a single animation frame. No raw PCM recordings are saved. |
+| 🟡 **Explicit action** | Device enumeration, local session persistence and export require user action. Persistence uses `ghostwire.exe:sessions:v1` plus a consent marker (`ghostwire.exe:sessions:consent:v1`) in `localStorage`, so a reload restores the sessions you chose to keep instead of deleting them. |
 | 🔴 **Sensitive output** | CSV, JSON and HTML exports contain aggregate features that may disclose environmental or behavioral patterns. |
 | 🔒 **Production network policy** | The built page's CSP sets `connect-src 'none'`, restricting fetch, XHR, WebSocket and EventSource connections. The development CSP permits Vite connections. |
 
@@ -205,7 +205,7 @@ When changing a metric, update its implementation in `src/dsp/`, its tests in `s
 
 ### Technical audit & remediation
 
-The [technical audit](./AUDIT.md) documents the current privacy, measurement and reliability findings, with evidence and a prioritized [remediation checklist](./AUDIT.md#remediation-checklist) for tracking proposed changes.
+The [technical audit](./AUDIT.md) documents the current privacy, measurement and reliability findings, with evidence and a prioritized [remediation checklist](./AUDIT.md#remediation-checklist) for tracking proposed changes. The P0 findings (raw-waveform retention and capture cancellation races) and the persistence, band-comparability and CSV-export findings are implemented and covered by regression tests; the audit records the status of every item.
 
 ### Automated checks
 

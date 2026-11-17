@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildEnvironmentalFingerprint,
+  buildLogBandBinMap,
   compareFingerprints,
+  computeLogBandEdges,
   inferBroadActivity,
 } from '../analysis';
 import { computeHannSpectrum } from '../fft';
@@ -16,6 +18,8 @@ import {
   computeSpectralCentroid,
   computeSpectralFlatness,
   computeZeroCrossingRate,
+  toActivityFrame,
+  toFeatureFrame,
 } from '../metrics';
 import {
   DEFAULT_SYNTHETIC_CONFIG,
@@ -28,6 +32,8 @@ import {
   exportSessionToHtmlReport,
   exportSessionToJson,
   frameToSessionSample,
+  sanitizeCsvText,
+  toCsvField,
 } from '../../utils/exportSession';
 import type { DspFrame } from '../../types/acoustic';
 
@@ -308,5 +314,173 @@ describe('Synthetic Presets & Experiment Analysis', () => {
     expect(html).toContain('<!doctype html>');
     expect(html).toContain('Calibration Test');
     expect(html).toContain('PRIVACY NOTICE');
+  });
+});
+
+describe('Audit remediation: retention, comparability and export safety', () => {
+  const sampleRate = 48000;
+  const fftSize = 2048;
+
+  const frameFrom = (
+    config = DEFAULT_SYNTHETIC_CONFIG,
+    timestampMs = 1000,
+    rate = sampleRate
+  ): DspFrame => {
+    const buf = generateSyntheticSamples(config, rate, fftSize, 0, 42);
+    return analyzeTimeDomainFrame(buf, {
+      sampleRate: rate,
+      fftSize,
+      timestampMs,
+    }).frame;
+  };
+
+  const framesFrom = (
+    config = DEFAULT_SYNTHETIC_CONFIG,
+    count = 6,
+    rate = sampleRate
+  ): DspFrame[] =>
+    Array.from({ length: count }, (_, i) =>
+      frameFrom(config, 1000 + i * 50, rate)
+    );
+
+  it('projects live frames onto feature-only and activity-only shapes with no PCM', () => {
+    const frame = frameFrom();
+    const feature = toFeatureFrame(frame);
+    const activity = toActivityFrame(frame);
+
+    expect('waveform' in feature).toBe(false);
+    expect('waveform' in activity).toBe(false);
+    expect('powerSpectrum' in activity).toBe(false);
+    expect('spectrumDbfs' in activity).toBe(false);
+    expect(activity.rmsDbfs).toBeCloseTo(frame.rmsDbfs, 10);
+    expect(feature.powerSpectrum.length).toBe(frame.powerSpectrum.length);
+  });
+
+  it('assigns each FFT bin to exactly one log band (no overlapping integration)', () => {
+    const edges = computeLogBandEdges(20, sampleRate / 2, 32);
+    const binToBand = buildLogBandBinMap(fftSize, sampleRate, edges);
+    const binWidth = sampleRate / fftSize;
+
+    let previousBand = -1;
+    let assigned = 0;
+    for (let k = 1; k < binToBand.length; k++) {
+      const band = binToBand[k];
+      if (band < 0) continue;
+      const freq = k * binWidth;
+      expect(freq).toBeGreaterThanOrEqual(edges[band].lowHz);
+      // The top band includes Nyquist itself, so allow floating-point slack.
+      expect(freq).toBeLessThanOrEqual(edges[band].highHz + 1e-6);
+      // Bands receive contiguous, non-repeating bin ranges: no double counting.
+      expect(band).toBeGreaterThanOrEqual(previousBand);
+      previousBand = band;
+      assigned++;
+    }
+
+    expect(assigned).toBeGreaterThan(0);
+    expect(assigned).toBeLessThanOrEqual(binToBand.length - 1);
+  });
+
+  it('normalises band power and treats a silent window as having no spectral evidence', () => {
+    const silence = new Float32Array(fftSize);
+    const silentFrames = Array.from({ length: 5 }, (_, i) =>
+      analyzeTimeDomainFrame(silence, {
+        sampleRate,
+        fftSize,
+        timestampMs: 1000 + i * 50,
+      }).frame
+    );
+    const silentFp = buildEnvironmentalFingerprint(
+      silentFrames,
+      'Silence',
+      'synthetic'
+    );
+    expect(silentFp.logBandDistribution.reduce((s, v) => s + v, 0)).toBe(0);
+    expect(silentFp.excludedFrameCount).toBe(0);
+
+    const silentCmp = compareFingerprints(silentFp, silentFp);
+    expect(silentCmp.comparable).toBe(false);
+    expect(silentCmp.incompatibilityReasons.join(' ')).toMatch(
+      /no measurable spectral power/i
+    );
+
+    const hum = SYNTHETIC_PRESETS.find((p) => p.id === 'electrical_hum')!;
+    const humFp = buildEnvironmentalFingerprint(
+      framesFrom(hum.config),
+      'Hum',
+      'synthetic'
+    );
+    const total = humFp.logBandDistribution.reduce((s, v) => s + v, 0);
+    expect(total).toBeCloseTo(1, 6);
+    expect(compareFingerprints(humFp, humFp).comparable).toBe(true);
+  });
+
+  it('refuses to score fingerprints measured on incompatible grids', () => {
+    const tone = {
+      ...DEFAULT_SYNTHETIC_CONFIG,
+      type: 'sine' as const,
+      frequencyHz: 440,
+      amplitude: 0.4,
+    };
+    const at48k = buildEnvironmentalFingerprint(framesFrom(tone), '48k', 'synthetic');
+    const at44k = buildEnvironmentalFingerprint(
+      framesFrom(tone, 6, 44100),
+      '44k',
+      'synthetic'
+    );
+
+    const cmp = compareFingerprints(at48k, at44k);
+    expect(cmp.comparable).toBe(false);
+    expect(cmp.confidenceLabel).toBe('Low');
+    expect(cmp.incompatibilityReasons.join(' ')).toMatch(/sample rates differ/i);
+    expect(cmp.interpretation).toMatch(/NOT COMPARABLE/);
+  });
+
+  it('excludes frames captured on a different grid and counts them', () => {
+    const mixed = [
+      ...framesFrom(DEFAULT_SYNTHETIC_CONFIG, 3),
+      ...framesFrom(DEFAULT_SYNTHETIC_CONFIG, 2, 44100),
+    ];
+    const fp = buildEnvironmentalFingerprint(mixed, 'Mixed', 'microphone');
+    expect(fp.frameCount).toBe(3);
+    expect(fp.excludedFrameCount).toBe(2);
+    expect(fp.sampleRate).toBe(48000);
+  });
+
+  it('keeps exported sessions free of PCM and neutralises CSV injection', () => {
+    const frame = frameFrom();
+    const session = buildMeasurementSession({
+      id: 'sess-injection',
+      name: 'Bad\n=HYPERLINK("http://evil")',
+      startedAtIso: '2026-11-17T00:00:00.000Z',
+      endedAtIso: '2026-11-17T00:00:01.000Z',
+      durationSec: 1,
+      sourceMode: 'microphone',
+      sampleRate: null,
+      fftSize,
+      samples: [frameToSessionSample(frame, 0)],
+      framesForFingerprint: [toFeatureFrame(frame)],
+    });
+
+    const csv = exportSessionToCsv(session);
+    expect(csv.split('\n').filter((l) => l.startsWith('# Session:'))).toHaveLength(1);
+    expect(csv).not.toContain('\n=HYPERLINK');
+    expect(csv).toContain('Sample Rate: unknown Hz');
+
+    const json = exportSessionToJson(session);
+    // The privacy notice mentions "waveform" in prose, so check keys, not text.
+    const keys = new Set<string>();
+    JSON.parse(json, (key, value) => {
+      keys.add(key);
+      return value;
+    });
+    expect(keys.has('waveform')).toBe(false);
+    expect(keys.has('powerSpectrum')).toBe(false);
+    expect(keys.has('spectrumDbfs')).toBe(false);
+
+    expect(sanitizeCsvText('a\r\nb\u0000c')).toBe('a b c');
+    expect(toCsvField('=1+1')).toBe("'=1+1");
+    expect(toCsvField('@SUM(A1)')).toBe("'@SUM(A1)");
+    expect(toCsvField('plain')).toBe('plain');
+    expect(toCsvField(-3.5)).toBe('-3.5');
   });
 });

@@ -1,4 +1,5 @@
 import type {
+  ActivityFrame,
   ActivityInferenceResult,
   DeviceMetadataSnapshot,
   DspFrame,
@@ -20,7 +21,7 @@ interface ExposureLabViewProps {
   mode: InputMode;
   latestFrame: DspFrame | null;
   postFrame: DspFrame | null;
-  recentFrames: DspFrame[];
+  recentFrames: ActivityFrame[];
   activity: ActivityInferenceResult | null;
   metadata: DeviceMetadataSnapshot;
   micConstraints: MicConstraintPreferences;
