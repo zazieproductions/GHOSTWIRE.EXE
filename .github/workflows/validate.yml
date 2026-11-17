@@ -41,11 +41,12 @@ jobs:
       - name: Lint (tsc --noEmit as proxy; see F10)
         run: npx tsc --noEmit
 
-      - name: Tests (vitest)
-        run: npx vitest run
-
       - name: Build (tsc -b + Vite)
         run: npm run build
+
+      # The CSP verification test reads dist/index.html, so build runs before tests.
+      - name: Tests (vitest)
+        run: npx vitest run
 
       - name: Dependency audit (npm audit)
         run: npm audit --audit-level=high

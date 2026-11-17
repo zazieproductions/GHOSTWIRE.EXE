@@ -129,7 +129,7 @@ export function SettingsView({
                 Opt-in: Persist numerical sessions in browser localStorage
               </div>
               <div className="text-[11px] text-[#7a9384]">
-                OFF by default. When unchecked, all session measurements reside strictly in volatile memory and vanish on page reload. Never persists raw audio.
+                OFF by default. Checking this stores numerical feature sessions only (never raw audio) and keeps them across reloads. Unchecking is an explicit opt-out and deletes the stored sessions.
               </div>
             </div>
           </label>

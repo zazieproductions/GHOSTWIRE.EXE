@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { EXPERIMENT_PROTOCOLS } from '../../data/protocols';
 import { buildEnvironmentalFingerprint } from '../../dsp/analysis';
+import { toFeatureFrame } from '../../dsp/metrics';
 import type {
   DspFrame,
   EnvironmentalFingerprint,
+  FeatureFrame,
   FingerprintComparison,
   InputMode,
 } from '../../types/acoustic';
@@ -22,22 +24,35 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
   // F8: cap the capture buffer so a long capture cannot grow without limit.
   // 300 frames ≈ 12s at 25 fps; Experiment A is a short A/B capture tool.
   const MAX_CAPTURE_FRAMES = 300;
-  const captureFramesRef = useRef<DspFrame[]>([]);
+  // Derived feature frames only: no time-domain PCM is buffered here.
+  const captureFramesRef = useRef<FeatureFrame[]>([]);
+  // Provenance of the window being captured, fixed at capture start.
+  const captureModeRef = useRef<InputMode>('idle');
 
   const [fpA, setFpA] = useState<EnvironmentalFingerprint | null>(null);
   const [fpB, setFpB] = useState<EnvironmentalFingerprint | null>(null);
   const [comparison, setComparison] = useState<FingerprintComparison | null>(null);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [comparing, setComparing] = useState(false);
+  const comparisonRequestRef = useRef(0);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Collect frames while capturing A or B (bounded for memory safety, F8).
+  // Collect feature frames while capturing A or B (bounded for memory safety, F8).
   useEffect(() => {
     if (!capturingSlot || !latestFrame) return;
     if (captureFramesRef.current.length >= MAX_CAPTURE_FRAMES) return;
-    captureFramesRef.current.push(latestFrame);
+    captureFramesRef.current.push(toFeatureFrame(latestFrame));
     setCaptureBufferCount(captureFramesRef.current.length);
   }, [capturingSlot, latestFrame]);
+
+  // Release any in-flight capture buffer when the experiment unmounts
+  useEffect(
+    () => () => {
+      captureFramesRef.current = [];
+    },
+    []
+  );
 
   // Stop capturing automatically if input stops
   useEffect(() => {
@@ -50,6 +65,7 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
   const startCapture = (slot: 'A' | 'B') => {
     if (mode === 'idle') return;
     captureFramesRef.current = [];
+    captureModeRef.current = mode;
     setCaptureBufferCount(0);
     setCapturingSlot(slot);
     // Reset comparison state on new capture so a previous result is not shown
@@ -57,18 +73,22 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
     setComparison(null);
     setFpA(null);
     setFpB(null);
+    setComparisonError(null);
   };
 
   const finishCapture = () => {
     if (!capturingSlot) return;
     const frames = captureFramesRef.current;
     const slot = capturingSlot;
+    const sourceMode = captureModeRef.current;
     setCapturingSlot(null);
+    captureFramesRef.current = [];
+    setCaptureBufferCount(0);
     if (frames.length === 0) return;
     const fp = buildEnvironmentalFingerprint(
       frames,
-      `Window ${slot} (${mode})`,
-      mode
+      `Window ${slot} (${sourceMode})`,
+      sourceMode
     );
     if (slot === 'A') setFpA(fp);
     else setFpB(fp);
@@ -76,18 +96,26 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
 
   const runComparison = async () => {
     if (!fpA || !fpB) return;
+    const requestId = comparisonRequestRef.current + 1;
+    comparisonRequestRef.current = requestId;
     setComparing(true);
+    setComparisonError(null);
     try {
       const res = await dspWorkerClient.compareFingerprints(fpA, fpB);
+      if (requestId !== comparisonRequestRef.current) return;
       setComparison(res);
     } catch (err) {
       // Surface worker / fingerprint comparison failures without leaving a
       // stale result (AUDIT F9). The UI can still show the last successful
       // comparison; a fresh comparison will overwrite it.
+      if (requestId !== comparisonRequestRef.current) return;
       console.error('[ExperimentA] fingerprint comparison failed:', err);
       setComparison(null);
+      setComparisonError(
+        err instanceof Error ? err.message : 'Fingerprint comparison failed.'
+      );
     } finally {
-      setComparing(false);
+      if (requestId === comparisonRequestRef.current) setComparing(false);
     }
   };
 
@@ -304,6 +332,15 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
                   {(fp.meanBandEnergy.midRatio * 100).toFixed(0)} /{' '}
                   {(fp.meanBandEnergy.highRatio * 100).toFixed(0)}%
                 </div>
+                <div className="text-[#7a9384]">Grid:</div>
+                <div className="text-right tabular-nums">
+                  {fp.sampleRate} Hz / FFT {fp.fftSize}
+                </div>
+                {fp.excludedFrameCount > 0 && (
+                  <div className="col-span-2 text-[10px] text-[#fcd34d]">
+                    {fp.excludedFrameCount} frame(s) excluded: analysis settings changed during this window.
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-[#5e7a68] py-3">Not captured yet.</div>
@@ -322,7 +359,30 @@ export function ExperimentA({ mode, latestFrame }: ExperimentAProps) {
       </div>
 
       {/* Comparison Results */}
-      {comparison && (
+      {comparisonError && (
+        <div
+          role="alert"
+          className="border border-[#ef4444]/60 bg-[#210c0c] text-[#fecaca] px-3 py-2 text-xs rounded-sm"
+        >
+          COMPARISON FAILED: {comparisonError}
+        </div>
+      )}
+
+      {comparison && !comparison.comparable && (
+        <div
+          role="status"
+          className="border border-[#f59e0b]/50 bg-[#181207] text-[#fcd34d] px-3 py-2 text-xs rounded-sm space-y-1"
+        >
+          <div className="font-semibold">WINDOWS ARE NOT COMPARABLE — NO SIMILARITY SCORE REPORTED</div>
+          <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
+            {comparison.incompatibilityReasons.map((reason, i) => (
+              <li key={i}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {comparison && comparison.comparable && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <MetricTile

@@ -1,6 +1,7 @@
 import { buildEnvironmentalFingerprint } from '../dsp/analysis';
 import type {
   DspFrame,
+  FeatureFrame,
   InputMode,
   MeasurementSession,
   SessionSamplePoint,
@@ -38,10 +39,10 @@ export function buildMeasurementSession(params: {
   endedAtIso: string | null;
   durationSec: number;
   sourceMode: InputMode;
-  sampleRate: number;
+  sampleRate: number | null;
   fftSize: number;
   samples: SessionSamplePoint[];
-  framesForFingerprint?: DspFrame[];
+  framesForFingerprint?: FeatureFrame[];
 }): MeasurementSession {
   const { samples } = params;
   const count = samples.length;
@@ -145,23 +146,35 @@ export function buildMeasurementSession(params: {
 }
 
 /**
- * CSV-safe quoting: wraps a field in double quotes if it contains a comma, double
- * quote, or line break, and doubles any embedded double quotes per RFC 4180.
+ * Collapse control characters so user-supplied labels cannot inject extra
+ * lines into the CSV comment block or forged data rows.
  */
-function csvField(value: string): string {
-  if (/[\n\r,"]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
+export function sanitizeCsvText(value: string): string {
+  return value
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Quote structural characters and neutralise spreadsheet formula injection
+ * (`=`, `+`, `-`, `@`, leading tab/CR) for textual cells. Numbers pass through
+ * unchanged so numeric columns stay parseable.
+ */
+export function toCsvField(value: string | number | boolean): string {
+  if (typeof value !== 'string') return String(value);
+  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }
 
 export function exportSessionToCsv(session: MeasurementSession): string {
   const headerLines = [
     `# GHOSTWIRE.EXE Acoustic Feature Session Export`,
     `# ${SESSION_PRIVACY_NOTICE}`,
-    `# Session: ${csvField(session.name)} (${session.id})`,
-    `# Source: ${session.sourceMode} | Sample Rate: ${session.sampleRate} Hz | FFT Size: ${session.fftSize}`,
-    `# Started: ${session.startedAtIso} | Duration: ${session.durationSec.toFixed(2)} s | Samples: ${session.summary.sampleCount}`,
+    `# Session: ${sanitizeCsvText(session.name)} (${sanitizeCsvText(session.id)})`,
+    `# Source: ${session.sourceMode} | Sample Rate: ${session.sampleRate ?? 'unknown'} Hz | FFT Size: ${session.fftSize}`,
+    `# Started: ${sanitizeCsvText(session.startedAtIso)} | Duration: ${session.durationSec.toFixed(2)} s | Samples: ${session.summary.sampleCount}`,
     `# Note: dBFS is digital full-scale relative amplitude, NOT calibrated physical dB SPL.`,
   ];
 
@@ -198,7 +211,9 @@ export function exportSessionToCsv(session: MeasurementSession): string {
       s.midRatio,
       s.highRatio,
       s.isActive ? 1 : 0,
-    ].join(',')
+    ]
+      .map(toCsvField)
+      .join(',')
   );
 
   return [...headerLines, columns.join(','), ...rows].join('\n');
@@ -222,7 +237,8 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 export function exportSessionToHtmlReport(session: MeasurementSession): string {
