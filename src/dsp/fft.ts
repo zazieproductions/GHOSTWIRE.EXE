@@ -14,11 +14,11 @@
 
 const hannCache = new Map<number, { window: Float32Array; coherentGain: number }>();
 
-export function isPowerOfTwo(n: number): boolean {
+function isPowerOfTwo(n: number): boolean {
   return n >= 2 && (n & (n - 1)) === 0;
 }
 
-export function getHannWindow(size: number): { window: Float32Array; coherentGain: number } {
+function getHannWindow(size: number): { window: Float32Array; coherentGain: number } {
   const cached = hannCache.get(size);
   if (cached) return cached;
 
@@ -40,7 +40,7 @@ export function getHannWindow(size: number): { window: Float32Array; coherentGai
  * In-place iterative Radix-2 Cooley-Tukey FFT.
  * `real` and `imag` must have identical power-of-two length N.
  */
-export function fftInPlace(real: Float32Array, imag: Float32Array): void {
+function fftInPlace(real: Float32Array, imag: Float32Array): void {
   const n = real.length;
   if (n !== imag.length || !isPowerOfTwo(n)) {
     throw new Error(`FFT length must be a power of two >= 2 (got ${n}, ${imag.length})`);

@@ -105,7 +105,7 @@ export const SYNTHETIC_PRESETS: SyntheticPreset[] = [
 /**
  * Deterministic Xorshift32 PRNG returning values in [-1, 1].
  */
-export function createPrng(seed = 0x5f3759df): () => number {
+function createPrng(seed = 0x5f3759df): () => number {
   let state = seed >>> 0 || 1;
   return () => {
     state ^= state << 13;

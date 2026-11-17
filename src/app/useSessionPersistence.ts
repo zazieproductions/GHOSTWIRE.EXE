@@ -15,7 +15,7 @@ import type { GhostwireState } from './useGhostwireState';
  * could not be read — a corrupt or future-version payload is reported and
  * left untouched.
  */
-export function restoreSavedSessions(state: GhostwireState): void {
+function restoreSavedSessions(state: GhostwireState): void {
   const { sessions, error } = loadPersistedSessions();
   if (error) {
     state.setErrorBanner(error);

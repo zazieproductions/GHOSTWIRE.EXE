@@ -22,6 +22,65 @@ function resetSessionDraft(state: GhostwireState): void {
   state.setActiveSessionDurationSec(0);
 }
 
+function beginSessionRecording(state: GhostwireState): void {
+  state.activeSamplesRef.current = [];
+  state.sessionFingerprintFramesRef.current = [];
+  state.sessionElapsedAccumSecRef.current = 0;
+  state.sessionStartMsRef.current = Date.now();
+  state.lastSessionSampleMsRef.current = 0;
+  // Freeze provenance now; later source or FFT changes cannot relabel this run.
+  state.sessionProvenanceRef.current = {
+    name:
+      state.activeSessionName.trim() ||
+      `Session ${state.savedSessionsRef.current.length + 1}`,
+    startedAtIso: new Date().toISOString(),
+    sourceMode: state.mode,
+    sampleRate: state.latestFrame?.sampleRate ?? null,
+    fftSize: state.settingsRef.current.fftSize,
+  };
+  state.setActiveSamples([]);
+  state.setActiveSessionDurationSec(0);
+  state.setSessionNotice(null);
+  state.setRecordingState('recording');
+}
+
+function draftDurationSec(state: GhostwireState): number {
+  const activeSec =
+    state.recordingStateRef.current === 'recording'
+      ? (Date.now() - state.sessionStartMsRef.current) / 1000
+      : 0;
+  return state.sessionElapsedAccumSecRef.current + activeSec;
+}
+
+function pauseRecording(state: GhostwireState): void {
+  state.sessionElapsedAccumSecRef.current +=
+    (Date.now() - state.sessionStartMsRef.current) / 1000;
+  state.sessionStartMsRef.current = Date.now();
+  state.setRecordingState('paused');
+}
+
+function canResumePausedSession(state: GhostwireState): boolean {
+  const provenance = state.sessionProvenanceRef.current;
+  return (
+    state.mode !== 'idle' &&
+    provenance !== null &&
+    provenance.sourceMode === state.mode
+  );
+}
+
+function clearSessionState(state: GhostwireState): void {
+  state.setRecordingState('idle');
+  state.sessionProvenanceRef.current = null;
+  state.activeSamplesRef.current = [];
+  state.sessionFingerprintFramesRef.current = [];
+  state.recentFramesRef.current = [];
+  state.setActiveSamples([]);
+  state.setActiveSessionDurationSec(0);
+  state.setSessionNotice(null);
+  state.setSavedSessions([]);
+  clearStoredSessions(state);
+}
+
 function useSettingsControls(state: GhostwireState) {
   const updateSettings = useCallback(
     (next: AppSettings) => {
@@ -137,25 +196,7 @@ function useSyntheticControls(state: GhostwireState) {
 function useSessionRecorder(state: GhostwireState) {
   const startSession = useCallback(() => {
     if (state.mode === 'idle') return;
-    state.activeSamplesRef.current = [];
-    state.sessionFingerprintFramesRef.current = [];
-    state.sessionElapsedAccumSecRef.current = 0;
-    state.sessionStartMsRef.current = Date.now();
-    state.lastSessionSampleMsRef.current = 0;
-    // Freeze provenance now; later source or FFT changes cannot relabel this run.
-    state.sessionProvenanceRef.current = {
-      name:
-        state.activeSessionName.trim() ||
-        `Session ${state.savedSessionsRef.current.length + 1}`,
-      startedAtIso: new Date().toISOString(),
-      sourceMode: state.mode,
-      sampleRate: state.latestFrame?.sampleRate ?? null,
-      fftSize: state.settingsRef.current.fftSize,
-    };
-    state.setActiveSamples([]);
-    state.setActiveSessionDurationSec(0);
-    state.setSessionNotice(null);
-    state.setRecordingState('recording');
+    beginSessionRecording(state);
   }, [state]);
 
   const finalizeActiveSession = useCallback(
@@ -163,18 +204,12 @@ function useSessionRecorder(state: GhostwireState) {
       const provenance = state.sessionProvenanceRef.current;
       if (state.recordingStateRef.current === 'idle' || !provenance) return;
 
-      const activeSec =
-        state.recordingStateRef.current === 'recording'
-          ? (Date.now() - state.sessionStartMsRef.current) / 1000
-          : 0;
-      const totalDur = state.sessionElapsedAccumSecRef.current + activeSec;
-
       const session = buildMeasurementSession({
         id: `sess-${Date.now().toString(36)}`,
         name: provenance.name,
         startedAtIso: provenance.startedAtIso,
         endedAtIso: new Date().toISOString(),
-        durationSec: Math.max(0.1, totalDur),
+        durationSec: Math.max(0.1, draftDurationSec(state)),
         sourceMode: provenance.sourceMode,
         sampleRate: provenance.sampleRate,
         fftSize: provenance.fftSize,
@@ -200,25 +235,18 @@ function useSessionRecorder(state: GhostwireState) {
 
   const pauseToggle = useCallback(() => {
     if (state.recordingState === 'recording') {
-      state.sessionElapsedAccumSecRef.current +=
-        (Date.now() - state.sessionStartMsRef.current) / 1000;
-      state.sessionStartMsRef.current = Date.now();
-      state.setRecordingState('paused');
-    } else if (state.recordingState === 'paused') {
-      const provenance = state.sessionProvenanceRef.current;
-      if (
-        state.mode === 'idle' ||
-        !provenance ||
-        provenance.sourceMode !== state.mode
-      ) {
-        finalizeActiveSession(
-          'Session finalised: resuming requires the same input source it was started with.'
-        );
-        return;
-      }
+      pauseRecording(state);
+      return;
+    }
+    if (state.recordingState !== 'paused') return;
+    if (canResumePausedSession(state)) {
       state.sessionStartMsRef.current = Date.now();
       state.setRecordingState('recording');
+      return;
     }
+    finalizeActiveSession(
+      'Session finalised: resuming requires the same input source it was started with.'
+    );
   }, [state, finalizeActiveSession]);
 
   const stopSession = useCallback(() => {
@@ -226,16 +254,7 @@ function useSessionRecorder(state: GhostwireState) {
   }, [finalizeActiveSession]);
 
   const clearAllSessionData = useCallback(() => {
-    state.setRecordingState('idle');
-    state.sessionProvenanceRef.current = null;
-    state.activeSamplesRef.current = [];
-    state.sessionFingerprintFramesRef.current = [];
-    state.recentFramesRef.current = [];
-    state.setActiveSamples([]);
-    state.setActiveSessionDurationSec(0);
-    state.setSessionNotice(null);
-    state.setSavedSessions([]);
-    clearStoredSessions(state);
+    clearSessionState(state);
   }, [state]);
 
   return { startSession, pauseToggle, stopSession, clearAllSessionData };

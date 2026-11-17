@@ -6,8 +6,8 @@ import type {
 } from '../types/acoustic';
 import { computeHannSpectrum } from './fft';
 
-export const MIN_AMPLITUDE_FLOOR = 1e-6; // -120 dBFS
-export const MIN_POWER_FLOOR = 1e-12; // -120 dBFS
+const MIN_AMPLITUDE_FLOOR = 1e-6; // -120 dBFS
+const MIN_POWER_FLOOR = 1e-12; // -120 dBFS
 
 export function amplitudeToDbfs(amplitude: number): number {
   if (!Number.isFinite(amplitude) || amplitude <= MIN_AMPLITUDE_FLOOR) {

@@ -18,24 +18,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+type SessionRecord = Record<string, unknown>;
+
+/** Field-level checks for a stored session; every one must pass. */
+const SESSION_FIELD_CHECKS: ReadonlyArray<(value: SessionRecord) => boolean> = [
+  (value) => typeof value.id === 'string' && value.id.length > 0,
+  (value) => typeof value.name === 'string',
+  (value) => typeof value.startedAtIso === 'string',
+  (value) =>
+    value.sourceMode === 'idle' ||
+    value.sourceMode === 'microphone' ||
+    value.sourceMode === 'synthetic',
+  (value) =>
+    typeof value.durationSec === 'number' && Number.isFinite(value.durationSec),
+  (value) => Array.isArray(value.samples),
+  (value) =>
+    isRecord(value.summary) && typeof value.summary.sampleCount === 'number',
+  (value) => value.fingerprint === null || isRecord(value.fingerprint),
+];
+
 /**
  * Shallow structural validation of a stored session. Stored data is untrusted
  * input: it may come from a different build, a manual edit or a corrupt write.
  */
 export function isMeasurementSession(value: unknown): value is MeasurementSession {
   if (!isRecord(value)) return false;
-  if (typeof value.id !== 'string' || value.id.length === 0) return false;
-  if (typeof value.name !== 'string') return false;
-  if (typeof value.startedAtIso !== 'string') return false;
-  if (value.sourceMode !== 'idle' && value.sourceMode !== 'microphone' && value.sourceMode !== 'synthetic') {
-    return false;
-  }
-  if (typeof value.durationSec !== 'number' || !Number.isFinite(value.durationSec)) return false;
-  if (!Array.isArray(value.samples)) return false;
-  if (!isRecord(value.summary)) return false;
-  if (typeof value.summary.sampleCount !== 'number') return false;
-  if (value.fingerprint !== null && !isRecord(value.fingerprint)) return false;
-  return true;
+  return SESSION_FIELD_CHECKS.every((isValidField) => isValidField(value));
 }
 
 /**
