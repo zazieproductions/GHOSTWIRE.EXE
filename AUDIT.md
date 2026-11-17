@@ -136,17 +136,17 @@ This GitHub-rendered task list tracks the proposed work in priority order. All i
 
 - [x] **F3:** Fix opt-in session restoration and intentional deletion semantics; surface storage failures and validate stored data. Test reload, opt-out, clear, malformed data and quota errors. [Details](#f3--opt-in-persistence-is-deleted-on-reload) → Resolved 2026-11-16 via PR #8
 - [x] **F4:** Capture session provenance at start and segment or stop sessions on source, sample-rate or configuration changes. Record gaps and accurately describe the fingerprint sampling interval; test transitions and long sessions. [Details](#f4--session-provenance-and-lifecycle-are-not-stable) → Resolved 2026-11-16 via PR #8
-- [ ] **F5:** Make spectral band integration non-overlapping, handle silence, and reject or rebin incompatible frequency grids. Label confidence as a heuristic and test power accounting and controlled comparisons. [Details](#f5--fingerprints-do-not-ensure-comparable-frequency-bands)
-- [ ] **F6:** Use time-aware, regularly sampled activity envelopes; detect gaps and suppress unsupported cadence estimates. Test known signals with jitter, dropped frames and backgrounding. [Details](#f6--activity-cadence-assumes-evenly-spaced-animation-frames)
+- [x] **F5:** Make spectral band integration non-overlapping, handle silence, and reject or rebin incompatible frequency grids. Label confidence as a heuristic and test power accounting and controlled comparisons. [Details](#f5--fingerprints-do-not-ensure-comparable-frequency-bands) → Resolved 2026-11-16 via PR #10
+- [x] **F6:** Use time-aware, regularly sampled activity envelopes; detect gaps and suppress unsupported cadence estimates. Test known signals with jitter, dropped frames and backgrounding. [Details](#f6--activity-cadence-assumes-evenly-spaced-animation-frames) → Resolved 2026-11-16 via PR #10
 - [ ] **F7:** Review the test dependency advisories, upgrade to compatible patched releases, refresh the lockfile and rerun the full validation suite. Establish recurring dependency scanning. [Details](#f7--development-dependencies-have-known-advisories)
 
 ### P2 — Reliability, delivery and usability
 
 - [ ] **F8:** Bound capture and session memory, remove repeated full-array copies, and benchmark FFT/UI performance and long-running sessions on representative devices. [Details](#f8--resource-usage-lacks-explicit-limits)
-- [ ] **F9:** Handle worker, metadata and audio-start failures visibly; prevent stale comparison results and test failure/retry paths. [Details](#f9--failure-and-stale-result-handling-is-incomplete)
+- [x] **F9:** Handle worker, metadata and audio-start failures visibly; prevent stale comparison results and test failure/retry paths. [Details](#f9--failure-and-stale-result-handling-is-incomplete) → Resolved 2026-11-16 via PR #10
 - [ ] **F10:** Add CI for project type-checking, linting, tests, build and dependency checks; expand browser and privacy lifecycle coverage and publish a validation matrix. [Details](#f10--validation-and-delivery-gates-are-incomplete)
 - [ ] **F11:** Document the production/development CSP and deployment threat model precisely; test the built policy and consider stronger response headers where supported. [Details](#f11--network-and-deployment-guarantees-need-a-narrower-threat-model)
-- [ ] **F12:** Harden CSV metadata against structural and spreadsheet injection, test exports, and audit keyboard, screen-reader, contrast and chart alternatives. [Details](#f12--export-and-accessibility-workflows-need-dedicated-review)
+- [x] **F12:** Harden CSV metadata against structural and spreadsheet injection, test exports, and audit keyboard, screen-reader, contrast and chart alternatives. [Details](#f12--export-and-accessibility-workflows-need-dedicated-review) → Resolved 2026-11-16 via PR #10
 
 When measurement or export semantics change, version them where appropriate and update the research and security documentation alongside the implementation.
 
