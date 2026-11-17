@@ -23,7 +23,8 @@ No tagged releases yet. Everything currently on `main` is unreleased.
   deterministic synthetic input, showing the live monitor, synthetic testbench, Experiments
   A/B/E and session analysis.
 - Repository automation: `slop-scan` package verification, `roast-my-codebase` pull
-  request health reports, and automated changelog updates on release.
+  request health reports, automated changelog updates on release, and path-based
+  pull request labeling (`actions/labeler` with `.github/labeler.yml`).
 - Regression coverage for capture races, persistence reload/opt-out/corruption/quota,
   feature-only retention, spectral band accounting and export injection.
 - `Validate` CI workflow (`.github/workflows/validate.yml`): type-check, lint, complexity
