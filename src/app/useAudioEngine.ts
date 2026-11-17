@@ -24,8 +24,9 @@ function recordSessionSample(state: GhostwireState, frame: DspFrame): void {
       (wallNow - state.sessionStartMsRef.current) / 1000;
     const point = frameToSessionSample(frame, elapsed);
     // AUDIT F8: stop appending once the session sample budget is exhausted.
+    // In-place push avoids an O(n) array copy for every 5 Hz sample.
     if (state.activeSamplesRef.current.length < MAX_SESSION_SAMPLES) {
-      state.activeSamplesRef.current = [...state.activeSamplesRef.current, point];
+      state.activeSamplesRef.current.push(point);
     }
     // AUDIT F1: fingerprint frames must not retain raw waveform beyond the
     // capture window. Strip PCM before caching for the session fingerprint.

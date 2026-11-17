@@ -26,15 +26,12 @@ No tagged releases yet. Everything currently on `main` is unreleased.
   now below their thresholds.
 - Extracted application state, engine lifecycle, capture controls, session recording
   and workspace routing into `src/app/`.
-- Resolved the first `main` merge by carrying the upstream waveform-stripping fix
-  into the new audio hook and wiring the capture-cancellation token into microphone
-  and synthetic start/stop paths.
-- Resolved the second `main` merge by porting the upstream non-overlapping spectral
-  bands, time-aware cadence segmentation, worker-error/stale-result handling, and
-  CSV metadata quoting into the refactored modules.
-- Resolved the third `main` merge by carrying the upstream buffer caps, validation
-  workflow and CSP hardening into the decomposed modules; CSP policy helpers are
-  now unit-testable without loading Vite in jsdom.
+- Kept the refactor mergeable as `main` advanced by porting upstream audit fixes
+  into the decomposed modules: waveform stripping and race-safe capture
+  cancellation, non-overlapping spectral bands, time-aware cadence segmentation,
+  worker-error/stale-result handling, CSV metadata quoting, explicit buffer caps,
+  in-place session sample accumulation, the validation workflow and CSP hardening.
+  CSP policy helpers are unit-testable without loading Vite in jsdom.
 
 ### Fixed
 
