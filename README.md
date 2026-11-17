@@ -200,6 +200,10 @@ e2e/                         # Playwright browser tests
 
 When changing a metric, update its implementation in `src/dsp/`, its tests in `src/dsp/__tests__/`, and the units and limitations in [RESEARCH.md](./RESEARCH.md). When changing capture, persistence or export behavior, review [SECURITY.md](./SECURITY.md) and the relevant integration and browser tests. Worker comparison requests are defined in `src/workers/dsp.worker.ts`; if a worker cannot be created, the client uses synchronous comparison functions.
 
+### Technical audit & remediation
+
+The [technical audit](./AUDIT.md) documents the current privacy, measurement and reliability findings, with evidence and a prioritized [remediation checklist](./AUDIT.md#remediation-checklist) for tracking proposed changes.
+
 ## License
 
 [MIT](./LICENSE)
