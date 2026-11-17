@@ -1,116 +1,205 @@
+<div align="center">
+
 # GHOSTWIRE.EXE
 
-> **Tagline:** *Your microphone reveals more than your words.*
+**ACOUSTIC PRIVACY RESEARCH // CLIENT-SIDE DSP LABORATORY**
 
-**GHOSTWIRE.EXE** is a 100% client-side, consent-based acoustic privacy research and digital signal processing (DSP) laboratory built with React, TypeScript, Tailwind CSS, and the Web Audio API. It investigates what environmental, behavioral, and hardware metadata can be inferred from microphone signals and browser audio APIs—even without recording conversations, running speech transcription, or transmitting audio.
+*Your microphone reveals more than your words.*
 
----
+`REACT 19` · `TYPESCRIPT` · `WEB AUDIO` · `WEB WORKERS` · `VITE`
 
-## Features & Research Modules
+[Quick start](#quick-start) · [Architecture](#architecture) · [DSP reference](#dsp-reference) · [Experiments](#experiment-index) · [Development](#development) · [Privacy](#privacy--trust-boundaries)
 
-### 1. Real-Time Signal Analysis (`LIVE MONITOR`)
-- Explicit, user-initiated microphone capture (`Enable Microphone` / immediate `Stop Microphone`)
-- Live Oscilloscope waveform, Hann-windowed FFT spectrum (Logarithmic or Linear scale, Peak Hold), and GPU-accelerated scrolling spectrogram
-- Real computed DSP measurements with documented units:
-  - RMS amplitude (`FS`), Peak amplitude (`FS`), and relative digital levels (`dBFS`, explicitly distinguished from calibrated physical `dB SPL`)
-  - Crest factor (`dB`), Dominant frequency (`Hz`, with 3-point parabolic log-magnitude interpolation)
-  - Spectral centroid (`Hz`), Spectral bandwidth (`Hz`), Spectral flatness (Wiener entropy)
-  - Zero-crossing rate (normalized ratio and estimated crossing frequency in `Hz`)
-  - Adaptive 10th-percentile noise floor estimation & activity/silence state
-  - Low (`20–250 Hz`), Mid (`250–2,000 Hz`), and High (`2,000 Hz–Nyquist`) frequency energy distribution
-
-### 2. Privacy Exposure Laboratory (`EXPOSURE LAB`)
-Five independently runnable experiments, each documented with Research Question, Hypothesis, Procedure, Measured Variables, Observations, Limitations, Confounding Factors, and Reproducibility Notes:
-- **Experiment A — Environmental Fingerprint:** Captures two independent ephemeral 32-band log-spectral profiles (no raw audio saved) and compares them off-thread in a Web Worker (cosine similarity, spectral RMSE, noise-floor delta, band shifts), with explicit limits on location/identity claims.
-- **Experiment B — Activity Inference:** Transparent, threshold-documented heuristics detecting relative quiet, sustained tonal activity, broadband noise, transient/impulsive sounds, and repetitive cadence (via RMS envelope autocorrelation).
-- **Experiment C — Microphone Metadata Leakage:** Demonstrates browser permission boundaries (`getSupportedConstraints`, explicit `enumerateDevices` label redaction before vs. after permission, `MediaStreamTrack.getSettings()` vs. requested constraints).
-- **Experiment D — Signal Transformation:** Real-time dual-analyser Web Audio chain (`preAnalyser` vs. `postAnalyser`) with Gain (`±24 dB`), High-Pass filter, Low-Pass filter, Noise Gate, and optional Broadband Noise Injection.
-- **Experiment E — Privacy Leakage Demonstrator:** Aggregates observable acoustic and metadata channels into potential broad inferences, explicit non-conclusions, mitigations, and a clearly labeled **Educational Heuristic Index** (non-validated).
-
-### 3. Synthetic Signal Laboratory (`SYNTHETIC SIGNALS`)
-- Works **without microphone permission**
-- Routes locally synthesized signals (`sine`, `white`, `pink`, `sweep`, `impulse`, `mixed`, `hum`) through the **exact same Web Audio `AnalyserNode` and DSP engine**
-- Includes 5 one-click presets: *Electrical Hum*, *Broadband Noise*, *Tonal Interference*, *Repetitive Transients*, and *Frequency Masking*
-- Built-in deterministic **DSP Numerical Self-Verification** checks
-
-### 4. Session Recording, Comparison & Exports (`SESSION ANALYSIS`)
-- Explicit Start / Pause / Stop measurement sessions retaining **only numerical feature aggregates and timestamps** (zero raw audio)
-- Local off-thread session comparison
-- Export **CSV**, **JSON**, and self-contained **HTML Research Reports**, each embedding a privacy warning that aggregate features themselves can reveal sensitive information
-- **Clear All Session Data** control and strict volatile RAM retention by default (local persistence is off unless explicitly opted in)
+</div>
 
 ---
 
-## Quick Start
+GHOSTWIRE.EXE explores the environmental, behavioral, and hardware metadata that can be inferred from browser audio APIs. It runs in the browser, with explicit microphone consent, without speech transcription or raw audio recording. Synthetic signals let you explore the same analysis path without granting microphone access.
 
-### Prerequisites
-- Node.js `>= 20` and npm `>= 10`
-- A modern desktop browser (Chrome, Edge, Firefox, or Safari on macOS / Linux / Windows)
-- Microphone access requires a secure context (`http://localhost` / `http://127.0.0.1` or `https://`)
+> [!IMPORTANT]
+> Acoustic features are **not anonymous by default**. Timestamped aggregates can reveal patterns in a person's environment or activity. Use the lab only with informed consent; handle exports as potentially sensitive data.
 
-### Installation & Commands
+## System at a glance
+
+| Surface | What it exposes | Primary output |
+|:--|:--|:--|
+| **Live monitor** | Waveform, spectrum, spectrogram and signal metrics | Real-time `DspFrame` measurements |
+| **Exposure lab** | Five controlled side-channel experiments | Comparisons, heuristics and documented limitations |
+| **Synthetic signals** | Locally generated test inputs and numerical checks | Repeatable inputs without microphone permission |
+| **Session analysis** | Start, pause, stop, compare and export | Timestamped numerical aggregates; CSV, JSON or HTML |
+
+## Quick start
+
+**Requirements:** Node.js 20+, npm 10+, and a modern browser. Microphone capture requires HTTPS or a localhost secure context and browser permission.
 
 ```bash
-npm install
+git clone https://github.com/zazieproductions/GHOSTWIRE.EXE.git
+cd GHOSTWIRE.EXE
+npm ci
 npm run dev
-npm run build
-npm test
 ```
 
-- `npm run dev` — Starts the local Vite development server (`0.0.0.0:5173`)
-- `npm run build` — Runs `tsc -b` type-checking and produces the static production bundle in `dist/` (with strict `connect-src 'none'` CSP meta tag)
-- `npm run preview` — Previews the production `dist/` build locally
-- `npm test` — Runs the Vitest unit & integration test suite
-- `npm run test:e2e` — Runs Playwright browser integration tests (requires `npx playwright install chromium` first)
+Open the URL printed by Vite, typically `http://localhost:5173`. Start with **SYNTHETIC SIGNALS** to explore without a microphone, or explicitly select **ENABLE MICROPHONE** to analyze live input. Use **STOP MICROPHONE** when finished.
 
----
+### A microphone-free walkthrough
 
-## Reproducing Experiments (Without a Microphone)
+1. In **SYNTHETIC SIGNALS**, choose **Electrical Hum (60 Hz + Harmonics)** and run the DSP numerical checks.
+2. In **EXPOSURE LAB → EXP A**, capture Window A. Switch to **Broadband Noise**, capture Window B, and compare their spectral profiles.
+3. Select **Frequency Masking (150 Hz Masking 240 Hz)**. In **EXP D**, enable the transformation pipeline and a 200 Hz high-pass filter; observe the change in the dominant frequency.
+4. Select **Repetitive Transients (4 Hz Impulses)** and inspect **EXP B** for transient and envelope-periodicity observations.
 
-1. Run `npm run dev` and open the app in your browser.
-2. Navigate to **SYNTHETIC SIGNALS** and click **Electrical Hum (60 Hz + Harmonics)**.
-3. Click **RUN DSP NUMERICAL CHECKS** to verify low-band concentration (`>80%`) and fundamental frequency detection (`~60 Hz`).
-4. Navigate to **EXPOSURE LAB → EXP A**, capture **Window A** while Electrical Hum is active, switch to **Broadband Noise** and capture **Window B**, and verify low spectral cosine similarity and noise-floor/band deltas.
-5. Switch to **Frequency Masking (150 Hz Masking 240 Hz)**, open **EXP D**, enable the Transformation Pipeline, and toggle a **200 Hz High-Pass Filter** to observe the dominant frequency shift from `~150 Hz` to `~240 Hz`.
-6. Switch to **Repetitive Transients (4 Hz Impulses)** and open **EXP B** to observe transient detection and `~4.0 Hz` envelope periodicity.
+Results depend on analysis settings and browser behavior; the comparisons are demonstrations, not identity or location tests.
 
----
+## Architecture
 
-## Platform-Specific Limitations
+The analysis loop reads time-domain frames from Web Audio analysers on the main thread. The custom DSP implementation computes spectral and temporal features; a worker is used for fingerprint and session comparisons, not for the live FFT.
 
-- **macOS / Apple Silicon & Safari:** Safari may restrict `MediaStreamTrack.getCapabilities()` or resample hardware input to 44.1/48 kHz independently of requested constraints. macOS Control Center's orange microphone indicator remains authoritative over any browser UI.
-- **Browser Audio Processing Overrides:** Chromium, Firefox, and Safari may honor or ignore `echoCancellation`, `noiseSuppression`, and `autoGainControl` flags depending on OS audio drivers or Bluetooth headset profiles (HFP/A2DP). Always compare *Requested Constraints* against *Actual Settings* in Experiment C.
-- **Uncalibrated dBFS vs. dB SPL:** Browsers cannot read physical microphone capsule sensitivity or analog preamp gain. All levels in `dBFS` are relative to digital full scale (`±1.0` PCM), never physical sound pressure level (`dB SPL`).
-- **Static Deployment:** Built with `base: './'` for zero-config static hosting on GitHub Pages, Cloudflare Pages, or Gitea Pages. Note that `connect-src 'none'` in the production CSP prevents any outbound fetch/XHR/WebSocket calls.
+```mermaid
+flowchart LR
+    mic["Microphone<br/>explicit permission"] --> pre
+    synth["Synthetic buffer<br/>no permission"] --> pre
+    synth -. "optional monitor" .-> speaker["Audio output"]
+    subgraph audio["Web Audio graph"]
+      pre["Pre analyser"] --> gain["Gain"] --> hp["High-pass"] --> lp["Low-pass"] --> gate["Noise gate"] --> post["Post analyser"]
+      noise["Noise source + gain"] --> post
+    end
+    pre --> dsp["Time-domain frame<br/>Hann window + FFT + metrics"]
+    post -. "when transform enabled" .-> dsp
+    dsp --> ui["Live views & experiments"]
+    dsp --> session["Session aggregates<br/>in memory"]
+    session --> worker["Comparison worker<br/>sync fallback"]
+    ui --> worker
+    session -. "explicit opt-in" .-> storage["localStorage"]
+    session -. "user export" .-> export["CSV / JSON / HTML"]
+    classDef input fill:#12334a,stroke:#38bdf8,color:#fff;
+    classDef process fill:#1f3650,stroke:#818cf8,color:#fff;
+    classDef data fill:#173d35,stroke:#34d399,color:#fff;
+    classDef boundary fill:#4a2e18,stroke:#fbbf24,color:#fff;
+    class mic,synth input;
+    class pre,gain,hp,lp,gate,post,noise,dsp,worker process;
+    class ui,session data;
+    class speaker,storage,export boundary;
+```
 
----
+**Legend:** 🟦 input · 🟪 processing · 🟩 in-memory results · 🟨 optional output or persistence. The microphone is not routed to the audio destination; optional monitoring applies to synthetic audio only. The transformation graph is present in the audio chain; post-transform metrics are sampled when the pipeline is enabled.
 
-## Example Test Results
+### Capture & data lifecycle
 
-Actual command output from `npm test` (Vitest v3.2.7):
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as React UI
+    participant Engine as Audio engine
+    participant Browser as Browser / Web Audio
+    participant DSP as DSP & session state
+    User->>UI: Enable microphone
+    UI->>Engine: enableMicrophone()
+    Engine->>Browser: getUserMedia(audio constraints)
+    Browser-->>Engine: Permission decision / stream
+    Engine->>Browser: Connect stream to analysis graph
+    loop Animation frames while active
+        Browser-->>Engine: Time-domain samples
+        Engine->>DSP: Analyze frame
+        DSP-->>UI: Metrics and visualizations
+    end
+    opt User starts a measurement session
+        UI->>DSP: Retain timestamped feature samples
+    end
+    User->>UI: Stop microphone
+    UI->>Engine: stopCapture()
+    Engine->>Browser: Stop tracks, disconnect nodes, close context
+```
+
+Synthetic input uses the same analysis graph, without `getUserMedia`. Session samples are collected at approximately 5 Hz while recording. Closing or reloading the page discards in-memory data; persistence and exports are separate user actions.
+
+## DSP reference
+
+| Measurement | Meaning and units | Interpretation |
+|:--|:--|:--|
+| RMS / peak | Full-scale amplitude and `dBFS` | Digital level, **not** calibrated sound pressure |
+| Crest factor | Peak-to-RMS ratio in `dB` | Helps distinguish impulsive from steady signals |
+| Dominant frequency | `Hz`, interpolated around the strongest FFT bin | A spectral peak, not a source identification |
+| Centroid / bandwidth | Magnitude-weighted spectral center and spread in `Hz` | Describes spectral shape |
+| Flatness | Geometric-to-arithmetic mean of spectral power | Near zero for tonal signals; higher for noise-like spectra |
+| Zero-crossing rate | Normalized crossings and estimated frequency | Frequency estimate is most meaningful for a simple tone |
+| Band energy | Low `20–250 Hz`, mid `250–2,000 Hz`, high `2,000 Hz–Nyquist` | Relative distribution across bands |
+
+The radix-2 FFT uses a Hann window and coherent-gain normalization. Dominant-frequency interpolation uses three log-magnitude bins. The live noise-floor tracker adapts asymmetrically; experiment fingerprints also summarize a capture window using a 10th-percentile RMS floor. See [RESEARCH.md](./RESEARCH.md) for formulas, thresholds, and confounders.
+
+### Resolution trade-off
+
+Nominal FFT bin spacing is **Δf = sample rate / FFT size**. Longer windows improve bin spacing but span more time; interpolation can refine a peak estimate without changing the underlying bin spacing.
+
+| FFT size | Window at 48 kHz | Bin spacing at 48 kHz |
+|--:|--:|--:|
+| 1,024 | 21.3 ms | 46.88 Hz |
+| 2,048 | 42.7 ms | 23.44 Hz |
+| 4,096 | 85.3 ms | 11.72 Hz |
+| 8,192 | 170.7 ms | 5.86 Hz |
+
+> [!NOTE]
+> These are calculated examples, not benchmark results. The actual sample rate is determined by the browser's audio context. `dBFS` is relative to digital full scale and cannot be converted to physical `dB SPL` without calibration.
+
+## Experiment index
+
+| ID | Research question | Method | Boundary of inference |
+|:--:|:--|:--|:--|
+| **A** | How similar are two acoustic environments? | Compare two ephemeral 32-band spectral profiles using cosine similarity, spectral RMSE and floor/band deltas. | Similarity does not establish room or device identity. |
+| **B** | Which broad activity patterns are observable? | Threshold-based quiet, tonal, broadband, transient and cadence analysis. | Acoustic morphology cannot reliably identify a specific action. |
+| **C** | What device metadata can a browser expose? | Inspect supported constraints, explicitly enumerated devices, requested constraints and actual track settings. | Available labels and capabilities vary with permission and browser. |
+| **D** | How do transformations affect observability? | Compare pre/post analysis with gain, filters, gate and optional noise injection. | A changed feature is not proof of privacy or protection. |
+| **E** | What can combined channels suggest? | Map observed features and metadata to broad inferences, mitigations and an educational index. | The index is a **non-validated heuristic**, not a probability. |
+
+Each experiment includes its research question, procedure, measurements, limitations and reproducibility notes in the application. [RESEARCH.md](./RESEARCH.md) documents methodology and confounding factors in more detail.
+
+## Privacy & trust boundaries
+
+| State / boundary | Behavior |
+|:--|:--|
+| 🟢 **Default** | Microphone access is user-initiated; session data is held in memory. No raw PCM recordings are saved. |
+| 🟡 **Explicit action** | Device enumeration, local session persistence and export require user action. Persistence uses `ghostwire.exe:sessions:v1` in `localStorage`. |
+| 🔴 **Sensitive output** | CSV, JSON and HTML exports contain aggregate features that may disclose environmental or behavioral patterns. |
+| 🔒 **Production network policy** | The built page's CSP sets `connect-src 'none'`, restricting fetch, XHR, WebSocket and EventSource connections. The development CSP permits Vite connections. |
+
+Use **Clear All Session Data** to remove in-memory sessions and the stored session entry. Browser and OS microphone indicators remain authoritative. Browser processing, device drivers and permission behavior vary; compare requested constraints with actual settings in Experiment C. See [SECURITY.md](./SECURITY.md) for the full privacy architecture and reporting guidance.
+
+## Development
+
+### Commands
+
+```bash
+npm run dev               # Vite development server (0.0.0.0:5173)
+npm run lint              # TypeScript check
+npm test                  # Vitest unit and integration tests
+npm run test:watch        # Vitest watch mode
+npm run build             # TypeScript project build + Vite static bundle
+npm run preview           # Serve dist/ (0.0.0.0:4173)
+npx playwright install chromium
+npm run test:e2e           # Playwright against the production preview
+```
+
+Build before running E2E: Playwright starts `npm run preview` and uses Chromium with fake microphone device and permission flags. Browser installation requires access to Playwright's browser download servers. Production assets are emitted to `dist/`; Vite uses a relative base path for static hosting. HTTPS is required for microphone capture outside localhost.
+
+### Code map
 
 ```text
- ✓ src/dsp/__tests__/dsp.test.ts (8 tests) 97ms
- ✓ src/__tests__/app.integration.test.tsx (5 tests) 835ms
-
- Test Files  2 passed (2)
-      Tests  13 passed (13)
+src/
+├── App.tsx                  # UI state, engine lifecycle and session collection
+├── audio/audioEngine.ts     # Web Audio graph, capture and frame loop
+├── dsp/                     # FFT, metrics, analysis and synthetic generation
+├── workers/                 # Comparison worker and synchronous fallback
+├── components/
+│   ├── views/               # Main application screens
+│   ├── experiments/         # Exposure experiments A–E
+│   └── visualizations/      # Waveform, spectrum and spectrogram canvases
+├── types/acoustic.ts        # Shared signal and session types
+├── utils/exportSession.ts   # CSV, JSON and HTML exports
+└── __tests__/               # App integration tests
+e2e/                         # Playwright browser tests
 ```
 
-Actual build verification (`npm run lint && npm run build`):
-
-```text
-dist/index.html                       0.93 kB
-dist/assets/dsp.worker-BoLclnY2.js    3.07 kB
-dist/assets/index-e1gsebSj.css       22.03 kB
-dist/assets/index-C8CPi5h0.js       370.34 kB
-✓ built in 1.43s
-```
-
-*Note on Playwright E2E (`e2e/ghostwire.spec.ts`):* The Playwright suite could not be executed in the offline sandbox because the Chromium binary (`npx playwright install chromium`) requires external CDN downloads outside the sandbox network allowlist. Run `npx playwright install chromium && npm run test:e2e` locally to execute the full browser E2E spec.
-
----
+When changing a metric, update its implementation in `src/dsp/`, its tests in `src/dsp/__tests__/`, and the units and limitations in [RESEARCH.md](./RESEARCH.md). When changing capture, persistence or export behavior, review [SECURITY.md](./SECURITY.md) and the relevant integration and browser tests. Worker comparison requests are defined in `src/workers/dsp.worker.ts`; if a worker cannot be created, the client uses synchronous comparison functions.
 
 ## License
 
-MIT License — see [LICENSE](./LICENSE).
+[MIT](./LICENSE)
