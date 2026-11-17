@@ -1,0 +1,53 @@
+name: Update Changelog
+
+# On every published release, prepends the release notes to CHANGELOG.md and
+# advances the "Unreleased" compare link, then commits the result back.
+#
+# https://github.com/marketplace/actions/changelog-updater
+
+on:
+  release:
+    types: [released]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-changelog
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Prepend release notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout release target branch
+        uses: actions/checkout@v4
+        with:
+          # Full history so the release date can be read from the tag commit.
+          fetch-depth: 0
+          # Ensures the changelog being edited is not stale.
+          ref: ${{ github.event.release.target_commitish }}
+
+      - name: Extract release date from git tag
+        id: release_date
+        run: |
+          echo "date=$(git log -1 --date=short --format=%ad '${{ github.event.release.tag_name }}')" >> "$GITHUB_OUTPUT"
+
+      - name: Update CHANGELOG.md
+        uses: stefanzweifel/changelog-updater-action@v1
+        with:
+          release-date: ${{ steps.release_date.outputs.date }}
+          # The action aborts when release notes are empty, so fall back to a
+          # minimal note for releases published without a body.
+          release-notes: ${{ github.event.release.body || format('Release {0}', github.event.release.tag_name) }}
+          latest-version: ${{ github.event.release.tag_name }}
+
+      - name: Commit updated CHANGELOG
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          branch: ${{ github.event.release.target_commitish }}
+          commit_message: 'docs(changelog): update for ${{ github.event.release.tag_name }}'
+          file_pattern: CHANGELOG.md
