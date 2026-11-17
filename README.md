@@ -10,6 +10,8 @@
 
 [Screenshots](#screenshots) · [Quick start](#quick-start) · [Architecture](#architecture) · [DSP reference](#dsp-reference) · [Experiments](#experiment-index) · [Development](#development) · [Privacy](#privacy--trust-boundaries)
 
+### ▶ [Open the live lab: zazieproductions.github.io/GHOSTWIRE.EXE](https://zazieproductions.github.io/GHOSTWIRE.EXE/)
+
 </div>
 
 ---
@@ -75,6 +77,8 @@ GHOSTWIRE.EXE explores the environmental, behavioral, and hardware metadata that
 > They are reproducible: `npm run screenshots` rebuilds the bundle, serves it with `vite preview`, and drives headless Chromium (Playwright, new headless mode) through the same flows, generating Experiment A's microphone input deterministically with `scripts/generate-fake-mic-noise.mjs` via `--use-file-for-fake-audio-capture`. Requires `npx playwright install chromium`; see [`docs/screenshots/README.md`](./docs/screenshots/README.md). Exact pixels vary with platform font rendering, but the UI state and analysis path are deterministic.
 
 ## Quick start
+
+**No install needed — open it directly:** **[https://zazieproductions.github.io/GHOSTWIRE.EXE/](https://zazieproductions.github.io/GHOSTWIRE.EXE/)**
 
 **Requirements:** Node.js 20+, npm 10+, and a modern browser. Microphone capture requires HTTPS or a localhost secure context and browser permission.
 
