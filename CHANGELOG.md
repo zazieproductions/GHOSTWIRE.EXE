@@ -14,6 +14,11 @@ No tagged releases yet. Everything currently on `main` is unreleased.
 
 ### Added
 
+- Reproducible README screenshot pipeline (`npm run screenshots`): a headless-Chromium
+  Playwright capture (`scripts/capture-screenshots.mjs`) against the production preview,
+  with Experiment A's microphone window fed by a deterministic broadband-noise WAV
+  (`scripts/generate-fake-mic-noise.mjs`, covered by unit tests) via Chromium's
+  file-backed fake capture device.
 - README screenshot gallery in `docs/screenshots/`, captured from the production build with
   deterministic synthetic input, showing the live monitor, synthetic testbench, Experiments
   A/B/E and session analysis.
