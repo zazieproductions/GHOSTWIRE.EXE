@@ -257,15 +257,16 @@ The [technical audit](./AUDIT.md) documents the current privacy, measurement and
 
 ### Automated checks
 
-Three GitHub Actions run alongside the commands above:
+Four GitHub Actions run alongside the commands above:
 
 | Workflow | Trigger | Purpose |
 |:--|:--|:--|
 | [`Slop Scan`](./.github/workflows/slop-scan.yml) | push to `main`, pull requests | Verifies that every npm package named in code and documentation exists on the registry, catching slopsquatting targets. |
 | [`Roast My Codebase`](./.github/workflows/roast.yml) | pull requests | Posts an advisory code-health comment (complexity, dead exports, tracked secrets, missing tests). It does not gate merges. |
+| [`Labeler`](./.github/workflows/labeler.yml) | pull requests | Applies path-based labels (area, DSP module, experiment, docs, tests, dependencies) from [`.github/labeler.yml`](./.github/labeler.yml). Advisory only; it does not gate merges. |
 | [`Update Changelog`](./.github/workflows/update-changelog.yml) | published releases | Prepends release notes to [`CHANGELOG.md`](./CHANGELOG.md) and advances the `Unreleased` compare link. |
 
-Only the changelog workflow requests write access (`contents: write`); the scanning workflows run with a read-only token. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`. `npm run build` additionally fails on any function at or above the Roast critical complexity threshold (25), so critical complexity findings cannot reach a production bundle.
+The changelog workflow requests `contents: write` and the labeler requests `pull-requests: write`; the scanning workflows run with a read-only token. These checks complement, and do not replace, `npm run lint`, `npm test` and `npm run test:e2e`. `npm run build` additionally fails on any function at or above the Roast critical complexity threshold (25), so critical complexity findings cannot reach a production bundle.
 
 ## License
 

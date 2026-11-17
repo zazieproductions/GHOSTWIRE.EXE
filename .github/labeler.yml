@@ -1,0 +1,177 @@
+# Pull Request Labeler configuration.
+#
+# Maps changed file paths to repository labels. Used by the Labeler workflow
+# (.github/workflows/labeler.yml) via actions/labeler.
+#
+# Only path-based labels are configured here. Type labels (bug, enhancement,
+# question, ...), priority (priority: *) and size (size: *) remain manual
+# triage decisions and are intentionally not auto-applied.
+#
+# All labels below already exist in the repository (verified with
+# `gh label list`), so the workflow only needs `pull-requests: write`.
+#
+# https://github.com/marketplace/actions/labeler
+
+documentation:
+  - changed-files:
+    - any-glob-to-any-file: '**/*.md'
+
+'area: docs':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'docs/**'
+      - '*.md'
+
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'package.json'
+      - 'package-lock.json'
+
+typescript:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '**/*.ts'
+      - '**/*.tsx'
+
+javascript:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '**/*.js'
+      - '**/*.mjs'
+      - '**/*.cjs'
+
+'area: audio-engine':
+  - changed-files:
+    - any-glob-to-any-file: 'src/audio/**'
+
+microphone:
+  - changed-files:
+    - any-glob-to-any-file: 'src/audio/**'
+
+'area: dsp':
+  - changed-files:
+    - any-glob-to-any-file: 'src/dsp/**'
+
+'dsp: fft':
+  - changed-files:
+    - any-glob-to-any-file: 'src/dsp/fft.ts'
+
+'dsp: metrics':
+  - changed-files:
+    - any-glob-to-any-file: 'src/dsp/metrics.ts'
+
+'dsp: synthetic':
+  - changed-files:
+    - any-glob-to-any-file: 'src/dsp/synthetic.ts'
+
+'dsp: analysis':
+  - changed-files:
+    - any-glob-to-any-file: 'src/dsp/analysis.ts'
+
+'area: experiments':
+  - changed-files:
+    - any-glob-to-any-file: 'src/components/experiments/**'
+
+'exp: A':
+  - changed-files:
+    - any-glob-to-any-file: 'src/components/experiments/ExperimentA.tsx'
+
+'exp: B':
+  - changed-files:
+    - any-glob-to-any-file: 'src/components/experiments/ExperimentB.tsx'
+
+'exp: C':
+  - changed-files:
+    - any-glob-to-any-file: 'src/components/experiments/ExperimentC.tsx'
+
+'exp: D':
+  - changed-files:
+    - any-glob-to-any-file: 'src/components/experiments/ExperimentD.tsx'
+
+'exp: E':
+  - changed-files:
+    - any-glob-to-any-file: 'src/components/experiments/ExperimentE.tsx'
+
+'area: ui':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/App.tsx'
+      - 'src/main.tsx'
+      - 'src/index.css'
+      - 'src/app/**'
+      - 'src/components/common/**'
+      - 'src/components/views/**'
+
+'area: visualizations':
+  - changed-files:
+    - any-glob-to-any-file: 'src/components/visualizations/**'
+
+'area: sessions':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/utils/sessionStorage.ts'
+      - 'src/utils/exportSession.ts'
+      - 'src/app/useSessionPersistence.ts'
+      - 'src/components/views/SessionAnalysisView.tsx'
+
+'area: workers':
+  - changed-files:
+    - any-glob-to-any-file: 'src/workers/**'
+
+'area: config':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'vite.config.ts'
+      - 'tsconfig*.json'
+      - 'index.html'
+      - 'playwright.config.ts'
+      - 'vitest.config.ts'
+      - 'src/config/**'
+      - 'src/vite-env.d.ts'
+
+'area: export':
+  - changed-files:
+    - any-glob-to-any-file: 'src/utils/exportSession.ts'
+
+'area: ci':
+  - changed-files:
+    - any-glob-to-any-file: '.github/**'
+
+'area: tests':
+  - changed-files:
+    - any-glob-to-any-file:
+      - '**/*.test.*'
+      - 'e2e/**'
+      - 'src/test/**'
+      - 'src/**/__tests__/**'
+
+test:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '**/*.test.*'
+      - 'e2e/**'
+
+chore:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '.github/**'
+      - 'scripts/**'
+      - '.gitignore'
+      - 'LICENSE'
+
+audit:
+  - changed-files:
+    - any-glob-to-any-file: 'AUDIT.md'
+
+security:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'SECURITY.md'
+      - 'src/config/csp.ts'
+
+research:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'RESEARCH.md'
+      - 'src/data/protocols.ts'
