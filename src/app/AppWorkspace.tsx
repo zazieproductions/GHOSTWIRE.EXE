@@ -75,7 +75,8 @@ function SessionsWorkspace({ state, controls }: WorkspaceProps) {
       recordingState={state.recordingState}
       activeSessionName={state.activeSessionName}
       activeSessionDurationSec={state.activeSessionDurationSec}
-      activeSamples={state.activeSamples}
+      activeSampleCount={state.activeSampleCount}
+      activeSamplesRef={state.activeSamplesRef}
       savedSessions={state.savedSessions}
       persistLocally={state.settings.persistSessionsLocally}
       sessionNotice={state.sessionNotice}

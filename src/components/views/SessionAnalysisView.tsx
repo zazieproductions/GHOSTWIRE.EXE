@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type {
   InputMode,
   MeasurementSession,
@@ -20,7 +20,8 @@ interface SessionAnalysisViewProps {
   recordingState: 'idle' | 'recording' | 'paused';
   activeSessionName: string;
   activeSessionDurationSec: number;
-  activeSamples: SessionSamplePoint[];
+  activeSampleCount: number;
+  activeSamplesRef: RefObject<readonly SessionSamplePoint[]>;
   savedSessions: MeasurementSession[];
   persistLocally: boolean;
   sessionNotice: string | null;
@@ -127,15 +128,6 @@ function useSessionComparison(
   return { comparison, comparisonError };
 }
 
-function selectPreviewSamples(
-  activeSamples: SessionSamplePoint[],
-  savedSessions: MeasurementSession[],
-  selectedIdA: string
-): SessionSamplePoint[] {
-  if (activeSamples.length > 0) return activeSamples;
-  return savedSessions.find((s) => s.id === selectedIdA)?.samples ?? [];
-}
-
 interface TimelineGeometry {
   width: number;
   height: number;
@@ -170,7 +162,7 @@ function drawTimelineGrid(
 
 function drawSampleTrace(
   ctx: CanvasRenderingContext2D,
-  samples: SessionSamplePoint[],
+  samples: readonly SessionSamplePoint[],
   geometry: TimelineGeometry,
   accessor: (point: SessionSamplePoint) => number,
   color: string,
@@ -205,7 +197,7 @@ function drawEmptyTimeline(
 
 function drawSessionTimeline(
   canvas: HTMLCanvasElement,
-  samples: SessionSamplePoint[]
+  samples: readonly SessionSamplePoint[]
 ): void {
   const width = canvas.clientWidth || 640;
   const height = 160;
@@ -260,20 +252,32 @@ function drawSessionTimeline(
   ctx.restore();
 }
 
-function TimelineCanvas({ samples }: { samples: SessionSamplePoint[] }) {
+function TimelineCanvas({
+  activeSamplesRef,
+  activeSampleCount,
+  savedPreviewSamples,
+}: Pick<SessionAnalysisViewProps, 'activeSamplesRef' | 'activeSampleCount'> & {
+  savedPreviewSamples: readonly SessionSamplePoint[] | undefined;
+}) {
   const timelineCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sampleCount = activeSampleCount || (savedPreviewSamples?.length ?? 0);
 
   useEffect(() => {
     const canvas = timelineCanvasRef.current;
     if (!canvas) return;
+    // The count changes on each append. Read the draft only when drawing so
+    // advancing the timeline does not require copying the entire sample buffer.
+    const samples = activeSampleCount > 0
+      ? activeSamplesRef.current
+      : savedPreviewSamples ?? [];
     drawSessionTimeline(canvas, samples);
-  }, [samples]);
+  }, [activeSampleCount, activeSamplesRef, savedPreviewSamples]);
 
   return (
     <div className="panel-border rounded-sm overflow-hidden">
       <div className="panel-header px-3 py-1.5 flex items-center justify-between text-[11px] text-[#86a390]">
         <span>FEATURE TIMELINE // RMS (GREEN) &amp; NOISE FLOOR (AMBER) dBFS</span>
-        <span>{samples.length} logged points</span>
+        <span>{sampleCount} logged points</span>
       </div>
       <canvas ref={timelineCanvasRef} className="w-full block" style={{ height: 160 }} />
     </div>
@@ -325,7 +329,7 @@ function SessionRecorderControls({
   recordingState,
   activeSessionName,
   activeSessionDurationSec,
-  activeSamples,
+  activeSampleCount,
   onChangeSessionName,
   onStartSession,
   onPauseToggle,
@@ -336,7 +340,7 @@ function SessionRecorderControls({
   | 'recordingState'
   | 'activeSessionName'
   | 'activeSessionDurationSec'
-  | 'activeSamples'
+  | 'activeSampleCount'
   | 'onChangeSessionName'
   | 'onStartSession'
   | 'onPauseToggle'
@@ -398,7 +402,7 @@ function SessionRecorderControls({
         </div>
         <div className="tabular-nums">
           <span className="text-[#6e8a78]">FRAMES: </span>
-          <span>{activeSamples.length}</span>
+          <span>{activeSampleCount}</span>
         </div>
       </div>
     </div>
@@ -626,7 +630,8 @@ export function SessionAnalysisView({
   recordingState,
   activeSessionName,
   activeSessionDurationSec,
-  activeSamples,
+  activeSampleCount,
+  activeSamplesRef,
   savedSessions,
   persistLocally,
   sessionNotice,
@@ -642,11 +647,9 @@ export function SessionAnalysisView({
     selection.selectedIdA,
     selection.selectedIdB
   );
-  const previewSamples = selectPreviewSamples(
-    activeSamples,
-    savedSessions,
-    selection.selectedIdA
-  );
+  const savedPreviewSamples = activeSampleCount > 0
+    ? undefined
+    : savedSessions.find((s) => s.id === selection.selectedIdA)?.samples;
 
   return (
     <div className="space-y-4">
@@ -667,13 +670,17 @@ export function SessionAnalysisView({
         recordingState={recordingState}
         activeSessionName={activeSessionName}
         activeSessionDurationSec={activeSessionDurationSec}
-        activeSamples={activeSamples}
+        activeSampleCount={activeSampleCount}
         onChangeSessionName={onChangeSessionName}
         onStartSession={onStartSession}
         onPauseToggle={onPauseToggle}
         onStopSession={onStopSession}
       />
-      <TimelineCanvas samples={previewSamples} />
+      <TimelineCanvas
+        activeSamplesRef={activeSamplesRef}
+        activeSampleCount={activeSampleCount}
+        savedPreviewSamples={savedPreviewSamples}
+      />
       <SavedSessionsTable savedSessions={savedSessions} />
       <SessionComparisonPanel
         savedSessions={savedSessions}

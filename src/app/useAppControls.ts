@@ -18,7 +18,7 @@ import {
 function resetSessionDraft(state: GhostwireState): void {
   state.activeSamplesRef.current = [];
   state.sessionFingerprintFramesRef.current = [];
-  state.setActiveSamples([]);
+  state.setActiveSampleCount(0);
   state.setActiveSessionDurationSec(0);
 }
 
@@ -173,8 +173,7 @@ function useSyntheticControls(state: GhostwireState) {
 function useSessionRecorder(state: GhostwireState) {
   const startSession = useCallback(() => {
     if (state.mode === 'idle') return;
-    state.activeSamplesRef.current = [];
-    state.sessionFingerprintFramesRef.current = [];
+    resetSessionDraft(state);
     state.sessionElapsedAccumSecRef.current = 0;
     state.sessionStartMsRef.current = Date.now();
     state.lastSessionSampleMsRef.current = 0;
@@ -188,9 +187,8 @@ function useSessionRecorder(state: GhostwireState) {
       sampleRate: state.latestFrame?.sampleRate ?? null,
       fftSize: state.settingsRef.current.fftSize,
     };
-    state.setActiveSamples([]);
-    state.setActiveSessionDurationSec(0);
     state.setSessionNotice(null);
+    state.setSessionSampleLimitReached(false);
     state.setRecordingState('recording');
   }, [state]);
 
@@ -235,12 +233,10 @@ function useSessionRecorder(state: GhostwireState) {
   const clearAllSessionData = useCallback(() => {
     state.setRecordingState('idle');
     state.sessionProvenanceRef.current = null;
-    state.activeSamplesRef.current = [];
-    state.sessionFingerprintFramesRef.current = [];
+    resetSessionDraft(state);
     state.recentFramesRef.current = [];
-    state.setActiveSamples([]);
-    state.setActiveSessionDurationSec(0);
     state.setSessionNotice(null);
+    state.setSessionSampleLimitReached(false);
     state.setSavedSessions([]);
     clearStoredSessions(state);
   }, [state]);

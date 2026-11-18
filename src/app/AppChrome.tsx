@@ -1,3 +1,5 @@
+import { MAX_SESSION_SAMPLES } from './limits';
+
 export function ErrorBanner({
   message,
   onDismiss,
@@ -22,6 +24,18 @@ export function ErrorBanner({
       </div>
     </div>
   ) : null;
+}
+
+export function SessionSampleLimitNotice({ reached }: { reached: boolean }) {
+  return (
+    <div aria-live="polite" aria-atomic="true" className="max-w-[1440px] w-full mx-auto px-4">
+      {reached && (
+        <p className="mt-3 border border-[#f59e0b]/50 bg-[#181207] text-[#fcd34d] px-3 py-2 rounded-sm text-xs">
+          Session sample limit reached. Only the first {MAX_SESSION_SAMPLES.toLocaleString()} points are kept.
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function AppFooter() {
