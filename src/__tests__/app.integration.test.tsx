@@ -3,9 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 import { buildMeasurementSession } from '../utils/exportSession';
 import { contentSecurityPolicy, injectCspMeta } from '../config/csp';
-
-const STORAGE_KEY_SESSIONS = 'ghostwire.exe:sessions:v1';
-const STORAGE_KEY_CONSENT = 'ghostwire.exe:sessions:consent:v1';
+import { STORAGE_KEY_CONSENT, STORAGE_KEY_SESSIONS } from '../utils/sessionStorage';
 
 function storedSession() {
   return buildMeasurementSession({
@@ -257,11 +255,13 @@ describe('GHOSTWIRE.EXE Privacy, Microphone Lifecycle & Synthetic Integration', 
     expect(localStorage.getItem('ghostwire.exe:sessions:v1')).toBeNull();
   });
 
-  it('restores explicitly opted-in sessions after reload instead of deleting them', async () => {
+  it('restores opted-in sessions on mount without writing an empty list', () => {
+    const storedPayload = JSON.stringify([storedSession()]);
     localStorage.setItem(STORAGE_KEY_CONSENT, '1');
-    localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify([storedSession()]));
+    localStorage.setItem(STORAGE_KEY_SESSIONS, storedPayload);
+    const storageWrite = vi.spyOn(Storage.prototype, 'setItem');
 
-    render(<App />);
+    render(<App />, { reactStrictMode: true });
 
     fireEvent.click(screen.getByRole('button', { name: /SESSION ANALYSIS/i }));
     expect(
@@ -273,7 +273,8 @@ describe('GHOSTWIRE.EXE Privacy, Microphone Lifecycle & Synthetic Integration', 
     fireEvent.click(screen.getByRole('button', { name: /SETTINGS/i }));
     const persistenceToggle = screen.getAllByRole('checkbox')[0] as HTMLInputElement;
     expect(persistenceToggle.checked).toBe(true);
-    expect(localStorage.getItem(STORAGE_KEY_SESSIONS)).not.toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY_SESSIONS)).toBe(storedPayload);
+    expect(storageWrite).not.toHaveBeenCalledWith(STORAGE_KEY_SESSIONS, '[]');
   });
 
   it('surfaces unreadable stored sessions without overwriting them', async () => {

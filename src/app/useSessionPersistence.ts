@@ -55,28 +55,27 @@ export function clearStoredSessions(state: GhostwireState): void {
 }
 
 export function useSessionPersistence(state: GhostwireState): void {
+  const { savedSessions, setErrorBanner, setSavedSessions, setSettings } = state;
+  const persistEnabled = state.settings.persistSessionsLocally;
+
   // Restore a previous explicit opt-in on mount. A stored consent marker — not
-  // the default settings value — decides whether saved sessions are restored,
-  // so a reload can never delete data the user chose to keep.
+  // the default settings value — decides whether saved sessions are restored.
   useEffect(() => {
     if (!hasPersistenceConsent()) return;
     const { sessions, error } = loadPersistedSessions();
     if (error) {
       // Never auto-enable writes over data that could not be read: that would
       // replace a future-version or corrupt payload with an empty list.
-      state.setErrorBanner(error);
+      setErrorBanner(error);
       return;
     }
-    state.setSettings((prev) => ({ ...prev, persistSessionsLocally: true }));
+    // Restore before enabling writes so the initial empty list cannot be saved,
+    // even if these updates are committed separately.
     if (sessions.length > 0) {
-      state.setSavedSessions((prev) => (prev.length === 0 ? sessions : prev));
+      setSavedSessions((prev) => (prev.length === 0 ? sessions : prev));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const persistEnabled = state.settings.persistSessionsLocally;
-  const savedSessions = state.savedSessions;
-  const setErrorBanner = state.setErrorBanner;
+    setSettings((prev) => ({ ...prev, persistSessionsLocally: true }));
+  }, [setErrorBanner, setSavedSessions, setSettings]);
 
   // Write only while persistence is explicitly enabled. Deleting stored data is
   // reserved for an intentional opt-out or "Clear All Session Data".

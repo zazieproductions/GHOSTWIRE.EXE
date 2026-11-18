@@ -73,9 +73,13 @@ export function useGhostwireState() {
   >('idle');
   const [activeSessionName, setActiveSessionName] = useState('Session 01');
   const [activeSessionDurationSec, setActiveSessionDurationSec] = useState(0);
-  const [activeSamples, setActiveSamples] = useState<SessionSamplePoint[]>([]);
+  // Publish the count, not the mutable buffer, to drive the live timeline.
+  const [activeSampleCount, setActiveSampleCount] = useState(0);
   const [savedSessions, setSavedSessions] = useState<MeasurementSession[]>([]);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  // Keep this separate from pause and save notices so they cannot hide it.
+  const [sessionSampleLimitReached, setSessionSampleLimitReached] =
+    useState(false);
 
   const recordingStateRef = useRef(recordingState);
   recordingStateRef.current = recordingState;
@@ -124,12 +128,14 @@ export function useGhostwireState() {
     setRecordingState,
     sessionNotice,
     setSessionNotice,
+    sessionSampleLimitReached,
+    setSessionSampleLimitReached,
     activeSessionName,
     setActiveSessionName,
     activeSessionDurationSec,
     setActiveSessionDurationSec,
-    activeSamples,
-    setActiveSamples,
+    activeSampleCount,
+    setActiveSampleCount,
     savedSessions,
     setSavedSessions,
     recordingStateRef,
